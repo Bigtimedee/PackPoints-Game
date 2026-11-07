@@ -5207,3 +5207,51 @@ export const referralWelcomeRewards = pgTable("referral_welcome_rewards", {
   index("idx_referral_welcome_status").on(table.status),
 ]);
 export type ReferralWelcomeReward = typeof referralWelcomeRewards.$inferSelect;
+
+/**
+ * Stage 1 instrumentation clock. One row, id `stage1`, inserted once at boot.
+ * started_at is an absolute instant (timestamptz). users.created_at is a UTC
+ * wall clock; compare with (created_at AT TIME ZONE 'UTC'), never a bare
+ * timestamp-to-timestamptz cast. Users created before started_at are not
+ * backfilled. Declared here so `drizzle-kit push --force` does not drop the table.
+ */
+export const growthInstrumentation = pgTable("growth_instrumentation", {
+  id: varchar("id", { length: 32 }).primaryKey(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  note: text("note").notNull(),
+});
+export type GrowthInstrumentation = typeof growthInstrumentation.$inferSelect;
+
+/**
+ * One row per user per lifecycle event. The unique (user_id, event_type)
+ * index is the dedupe lock for signup, first_game_completed, day1_return,
+ * and day7_return. Raw UTM columns keep the supplied values (bounded).
+ * Contract classification is derived at read time and is not a rewrite of
+ * legacy publisher tokens. No user-level columns are returned by the QA report.
+ */
+export const growthLifecycleEvents = pgTable("growth_lifecycle_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  eventType: varchar("event_type", { length: 32 }).notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  cohortDay: varchar("cohort_day", { length: 10 }).notNull(),
+  provider: varchar("provider", { length: 20 }),
+  rawUtmSource: varchar("raw_utm_source", { length: 100 }),
+  rawUtmMedium: varchar("raw_utm_medium", { length: 100 }),
+  rawUtmCampaign: varchar("raw_utm_campaign", { length: 100 }),
+  rawUtmContent: varchar("raw_utm_content", { length: 100 }),
+  referrerHost: varchar("referrer_host", { length: 100 }),
+  landingPage: varchar("landing_page", { length: 200 }),
+  destination: varchar("destination", { length: 200 }),
+  inferred: boolean("inferred").notNull().default(false),
+  // captured: written in the signup transaction, inferred flag is known.
+  // recovered: repaired later from user_attribution with no provenance. Not attributable.
+  provenance: varchar("provenance", { length: 20 }).notNull().default("captured"),
+}, (table) => [
+  uniqueIndex("uq_growth_lifecycle_user_event").on(table.userId, table.eventType),
+  index("idx_growth_lifecycle_type_time").on(table.eventType, table.occurredAt),
+  index("idx_growth_lifecycle_cohort").on(table.cohortDay, table.eventType),
+  check("growth_lifecycle_event_type_check", sql`${table.eventType} IN ('signup', 'first_game_completed', 'day1_return', 'day7_return')`),
+  check("growth_lifecycle_provenance_check", sql`${table.provenance} IN ('captured', 'recovered')`),
+]);
+export type GrowthLifecycleEvent = typeof growthLifecycleEvents.$inferSelect;

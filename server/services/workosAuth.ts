@@ -7,11 +7,15 @@ import { identityService } from "./identityService";
 import type { IdentityProvider } from "@shared/schema";
 import {
   applySignupAttribution, riskCtxFrom,
+  chooseFirstTouch,
   clearAttributionCookie,
+  clearSessionAttribution,
   isSameOriginRequest,
   readAttributionCookie,
+  readSessionAttribution,
   sanitizeAttribution,
   setAttributionCookie,
+  writeSessionAttribution,
 } from "../lib/signupAttribution";
 import { recordFunnelEvent } from "./funnel";
 import { funnelToken, signupFunnelPath } from "./signupFunnel";
@@ -70,9 +74,11 @@ export function registerWorkosRoutes(app: Express): void {
     const attribution = sanitizeAttribution(req.body);
     if (!attribution) {
       clearAttributionCookie(res);
+      clearSessionAttribution(req);
       return res.status(204).end();
     }
     setAttributionCookie(res, attribution);
+    writeSessionAttribution(req, attribution);
     return res.status(204).end();
   });
 
@@ -146,8 +152,9 @@ export function registerWorkosRoutes(app: Express): void {
     const clientInfo = getClientInfo(req);
     const provider: IdentityProvider = "workos";
     // Read once and always clear: only a user created below may use it.
-    const stashedAttribution = readAttributionCookie(req);
+    const stashedAttribution = chooseFirstTouch(readAttributionCookie(req), readSessionAttribution(req));
     clearAttributionCookie(res);
+    clearSessionAttribution(req);
     const signupSurface = funnelToken((req.session as any)?.signupSurface) || "workos";
     const sessionMethod = typeof (req.session as any)?.signupMethod === "string"
       ? (req.session as any).signupMethod as string
@@ -287,6 +294,12 @@ export function registerWorkosRoutes(app: Express): void {
         } catch (claimErr) {
           console.error("[WorkOS] Guest escrow claim failed (non-fatal):", claimErr);
         }
+        try {
+          const { noteGrowthActivity } = await import("./growthStage1");
+          await noteGrowthActivity(localUser.id);
+        } catch (growthErr) {
+          console.error("[WorkOS] Growth return note failed (non-fatal):", (growthErr as Error)?.message);
+        }
 
         await identityService.logAudit(
           "LINK_COMPLETED",
@@ -365,7 +378,7 @@ export function registerWorkosRoutes(app: Express): void {
         profileImageUrl: workosUser.profilePictureUrl || undefined,
         username: uniqueUsername,
         oauthProvider: signupMethod,
-      });
+      }, { provider: signupMethod, attribution: stashedAttribution });
 
       if (!newUser) {
         console.error("[WorkOS] Failed to create local user");
@@ -400,7 +413,7 @@ export function registerWorkosRoutes(app: Express): void {
       (req.session as any).workosUserId = workosUser.id;
       (req.session as any).localUserId = newUser.id;
 
-      await applySignupAttribution(newUser.id, stashedAttribution, "WorkOS", await riskCtxFrom(req));
+      await applySignupAttribution(newUser.id, stashedAttribution, "WorkOS", await riskCtxFrom(req), signupMethod);
       recordFunnelEvent(req, "signup_complete", {
         userId: newUser.id,
         mode: signupMethod,

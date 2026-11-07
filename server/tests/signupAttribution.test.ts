@@ -94,6 +94,10 @@ vi.mock("../db", () => {
       select: () => chain(() => mocks.appleSelect()),
       insert: () => chain(() => mocks.userInsert()),
       update: () => chain(() => []),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({
+        insert: () => chain(() => mocks.userInsert()),
+        execute: async () => ({ rows: [{ has_event: true, should: false }] }),
+      }),
     },
   };
 });
@@ -104,6 +108,9 @@ import {
   ATTRIBUTION_COOKIE_MAX_BYTES,
   applySignupAttribution,
   attributeNewUserFromRequest,
+  readSessionAttribution,
+  SESSION_ATTRIBUTION_TTL_MS,
+  writeSessionAttribution,
   decodeAttributionCookie,
   encodeAttributionCookie,
   sanitizeAttribution,
@@ -254,10 +261,10 @@ describe("sanitization", () => {
 
   it("fills Instagram bio utms only when utm_source is empty", () => {
     expect(sanitizeAttribution({ referrerHost: "https://l.instagram.com/link" })).toEqual(
-      attr({ utmSource: "instagram", utmMedium: "social", utmContent: "bio", referrerHost: "l.instagram.com" }),
+      attr({ utmSource: "instagram", utmMedium: "social", utmContent: "bio", referrerHost: "l.instagram.com", inferred: true }),
     );
     expect(sanitizeAttribution({ referrerHost: "www.instagram.com", utmMedium: "cpc", utmContent: "story" })).toEqual(
-      attr({ utmSource: "instagram", utmMedium: "cpc", utmContent: "story", referrerHost: "instagram.com" }),
+      attr({ utmSource: "instagram", utmMedium: "cpc", utmContent: "story", referrerHost: "instagram.com", inferred: true }),
     );
     expect(sanitizeAttribution({ referrerHost: "https://instagram.com/", utmSource: "newsletter", utmMedium: "email" })).toEqual(
       attr({ utmSource: "newsletter", utmMedium: "email", referrerHost: "instagram.com" }),
@@ -361,6 +368,15 @@ describe("attribution cookie", () => {
     const value = encodeAttributionCookie(big)!;
     expect(value).not.toBeNull();
     expect(value.length).toBeLessThanOrEqual(ATTRIBUTION_COOKIE_MAX_BYTES);
+  });
+
+  it("keeps a session record for the 30 day first-touch window and drops it after", () => {
+    const session: Record<string, unknown> = {};
+    const record = sanitizeAttribution({ utmSource: "instagram", utmMedium: "social", utmCampaign: "261107-87topps", utmContent: "post-a" })!;
+    writeSessionAttribution({ session }, record, 1_000);
+    expect(readSessionAttribution({ session }, 1_000 + SESSION_ATTRIBUTION_TTL_MS - 1)?.utmCampaign).toBe("261107-87topps");
+    expect(readSessionAttribution({ session }, 1_000 + SESSION_ATTRIBUTION_TTL_MS + 1)).toBeNull();
+    expect(session.signupAttribution).toBeUndefined();
   });
 
   it("rejects tampered, expired, oversized, and unsigned values", () => {
@@ -493,7 +509,7 @@ describe("WorkOS: stash cookie round trip", () => {
     expect(mocks.createWorkosUser).toHaveBeenCalledWith(expect.objectContaining({
       workosUserId: "wos_new",
       oauthProvider: "workos",
-    }));
+    }), expect.objectContaining({ provider: "workos" }));
   });
 
   it("stores GoogleOAuth as google on a new WorkOS user", async () => {
@@ -510,7 +526,37 @@ describe("WorkOS: stash cookie round trip", () => {
     expect(mocks.createWorkosUser).toHaveBeenCalledWith(expect.objectContaining({
       workosUserId: "wos_google",
       oauthProvider: "google",
-    }));
+    }), expect.objectContaining({ provider: "google", attribution: null }));
+  });
+
+  it("uses the session stash when the OAuth cookie is not sent", async () => {
+    await stash({
+      utmSource: "instagram",
+      utmMedium: "social",
+      utmCampaign: "261107-87topps",
+      utmContent: "ig-feed-w3-d4-hook-b",
+      landingPage: "/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722",
+    });
+    mocks.authenticateWithCode.mockResolvedValue({ user: { id: "wos_session", email: "sess@example.com", emailVerified: true } });
+    mocks.findIdentity.mockResolvedValue(null);
+    mocks.findUsersByEmail.mockResolvedValue([]);
+    mocks.getUserByUsername.mockResolvedValue(undefined);
+    mocks.createWorkosUser.mockResolvedValue({ id: "user-session-oauth" });
+    const res = await callback(null);
+    expect(res.status).toBe(302);
+    expect(written).toEqual([
+      {
+        userId: "user-session-oauth",
+        a: attr({
+          utmSource: "instagram",
+          utmMedium: "social",
+          utmCampaign: "261107-87topps",
+          utmContent: "ig-feed-w3-d4-hook-b",
+          landingPage: "/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722",
+        }),
+      },
+    ]);
+    expect(h.session.signupAttribution).toBeUndefined();
   });
 
   it("does not write for an existing WorkOS user logging in, and still clears the cookie", async () => {
@@ -657,7 +703,7 @@ describe("POST /api/auth/register attribution", () => {
     expect(cleared).toEqual([ATTRIBUTION_COOKIE]);
   });
 
-  it("fills gaps from the stash cookie; body wins per field", async () => {
+  it("keeps the body record whole and does not mix cookie fields into it", async () => {
     const cookie = encodeAttributionCookie(attr({ utmSource: "cookie_src", utmCampaign: "from_cookie" }))!;
     const { res } = fakeRes();
     await attributeNewUserFromRequest(
@@ -667,7 +713,20 @@ describe("POST /api/auth/register attribution", () => {
       { utmSource: "body_src" },
       "Register",
     );
-    expect(written[0].a).toEqual(attr({ utmSource: "body_src", utmCampaign: "from_cookie" }));
+    expect(written[0].a).toEqual(attr({ utmSource: "body_src" }));
+  });
+
+  it("uses the cookie record whole when the body has no attribution", async () => {
+    const cookie = encodeAttributionCookie(attr({ utmSource: "cookie_src", utmCampaign: "from_cookie", landingPage: "/daily" }))!;
+    const { res } = fakeRes();
+    await attributeNewUserFromRequest(
+      { headers: { cookie: `${ATTRIBUTION_COOKIE}=${encodeURIComponent(cookie)}` } },
+      res,
+      "user-reg-cookie",
+      { username: "a", email: "a@example.com", password: "p" },
+      "Register",
+    );
+    expect(written[0].a).toEqual(attr({ utmSource: "cookie_src", utmCampaign: "from_cookie", landingPage: "/daily" }));
   });
 
   it("records referral SIGNUP from referredByCode", async () => {

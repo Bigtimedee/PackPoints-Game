@@ -536,6 +536,29 @@ app.use((req, res, next) => {
   // Routes exist. On the fast path the schema probe already passed and
   // drizzle-kit push is still running in the background. On the fallback path
   // that push finished before this function continued.
+  try {
+    const { ensureGrowthInstrumentation } = await import("./services/growthStage1");
+    await ensureGrowthInstrumentation();
+  } catch (err: any) {
+    console.error(JSON.stringify({
+      component: "growth_stage1",
+      event: "baseline_failed",
+      fatal: true,
+      message: err?.message,
+    }));
+    process.exit(1);
+  }
+  try {
+    const { scheduleGrowthSignupReconcile } = await import("./services/growthStage1");
+    scheduleGrowthSignupReconcile();
+  } catch (err: any) {
+    console.error(JSON.stringify({
+      component: "growth_stage1",
+      event: "reconcile_failed",
+      fatal: false,
+      message: err?.message,
+    }));
+  }
   markSchemaReady();
   logBootPhase("routes_ready");
   try {

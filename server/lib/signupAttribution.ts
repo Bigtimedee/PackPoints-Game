@@ -21,11 +21,17 @@ export type SignupAttribution = {
   refCode: string | null;
   landingPage: string | null;
   referrerHost: string | null;
+  /** True when utm_source was filled from an Instagram referrer, not supplied. */
+  inferred?: true;
 };
 
 export const ATTRIBUTION_COOKIE = "pp_attr";
+/** Same-browser fallback when the OAuth redirect drops the cookie. */
+export const ATTRIBUTION_SESSION_KEY = "signupAttribution";
 /** Cookie is only needed for the OAuth round trip. */
 export const ATTRIBUTION_COOKIE_MAX_AGE_MS = 30 * 60 * 1000;
+/** Matches the browser first-touch window. Longer than the OAuth cookie so a dropped cookie still has the same record. */
+export const SESSION_ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Hard cap on the raw cookie value we will set or parse. */
 export const ATTRIBUTION_COOKIE_MAX_BYTES = 1200;
 /** Sent to the OAuth callback and Apple handler only. */
@@ -100,7 +106,7 @@ function isInstagramReferrerHost(host: string): boolean {
 
 export function hasAnyAttribution(a: SignupAttribution | null | undefined): a is SignupAttribution {
   if (!a) return false;
-  return Object.values(a).some((v) => v !== null);
+  return (Object.keys(a) as (keyof SignupAttribution)[]).some((key) => key !== "inferred" && a[key] != null);
 }
 
 /**
@@ -120,26 +126,29 @@ export function sanitizeAttribution(input: unknown): SignupAttribution | null {
     landingPage: sanitizeLandingPage(firstString(o.landingPage, o.landing_page, o.landingPath, o.landing_path)),
     referrerHost: sanitizeReferrerHost(firstString(o.referrerHost, o.referrer_host)),
   };
+  const clientInferred = o.inferred === true || o.attributionInferred === true;
   if (!out.utmSource && out.referrerHost && isInstagramReferrerHost(out.referrerHost)) {
     out.utmSource = "instagram";
     if (!out.utmMedium) out.utmMedium = "social";
     if (!out.utmContent) out.utmContent = "bio";
+    out.inferred = true;
+  } else if (clientInferred) {
+    out.inferred = true;
   }
   return hasAnyAttribution(out) ? out : null;
 }
 
-/** Field-by-field: primary wins, fallback fills gaps. */
-export function mergeAttribution(
-  primary: SignupAttribution | null,
-  fallback: SignupAttribution | null,
+/**
+ * First matching complete record wins. Fields from a later cookie or session
+ * are not copied into an earlier record, so two touches cannot be mixed.
+ */
+export function chooseFirstTouch(
+  ...candidates: Array<SignupAttribution | null | undefined>
 ): SignupAttribution | null {
-  if (!primary) return fallback;
-  if (!fallback) return primary;
-  const out = { ...primary };
-  for (const key of Object.keys(out) as (keyof SignupAttribution)[]) {
-    if (out[key] === null) out[key] = fallback[key];
+  for (const candidate of candidates) {
+    if (hasAnyAttribution(candidate)) return candidate;
   }
-  return out;
+  return null;
 }
 
 // ── Signed cookie ────────────────────────────────────────────────────────────
@@ -157,7 +166,7 @@ function sign(payload: string, secret: string): string {
     .slice(0, 32);
 }
 
-const COMPACT_KEYS: Record<keyof SignupAttribution, string> = {
+const COMPACT_KEYS: Record<"utmSource" | "utmMedium" | "utmCampaign" | "utmTerm" | "utmContent" | "refCode" | "landingPage" | "referrerHost", string> = {
   utmSource: "s",
   utmMedium: "m",
   utmCampaign: "c",
@@ -174,8 +183,9 @@ export function encodeAttributionCookie(a: SignupAttribution, now = Date.now()):
   const compact: Record<string, string | number> = { i: Math.floor(now / 1000) };
   for (const [key, short] of Object.entries(COMPACT_KEYS)) {
     const v = a[key as keyof SignupAttribution];
-    if (v !== null) compact[short] = v;
+    if (typeof v === "string") compact[short] = v;
   }
+  if (a.inferred) compact.f = 1;
   const payload = Buffer.from(JSON.stringify(compact), "utf8").toString("base64url");
   const value = `${payload}.${sign(payload, secret)}`;
   return value.length <= ATTRIBUTION_COOKIE_MAX_BYTES ? value : null;
@@ -205,6 +215,7 @@ export function decodeAttributionCookie(value: string | null | undefined, now = 
   const expanded: Record<string, unknown> = {};
   for (const [key, short] of Object.entries(COMPACT_KEYS)) expanded[key] = p[short];
   expanded.refCode = p.r;
+  if (p.f === 1) expanded.inferred = true;
   return sanitizeAttribution(expanded);
 }
 
@@ -248,6 +259,50 @@ export function clearAttributionCookie(res: Response): void {
 
 export function readAttributionCookie(req: Pick<Request, "headers">): SignupAttribution | null {
   return decodeAttributionCookie(readCookie(req, ATTRIBUTION_COOKIE));
+}
+
+type SessionEnvelope = { v: 1; at: number; record: SignupAttribution };
+
+function sessionBag(req: { session?: unknown }): Record<string, unknown> | null {
+  const session = req.session;
+  if (!session || typeof session !== "object") return null;
+  return session as Record<string, unknown>;
+}
+
+export function readSessionAttribution(req: { session?: unknown }, now = Date.now()): SignupAttribution | null {
+  const session = sessionBag(req);
+  if (!session) return null;
+  const raw = session[ATTRIBUTION_SESSION_KEY];
+  if (!raw || typeof raw !== "object") return null;
+  const envelope = raw as Partial<SessionEnvelope> & Record<string, unknown>;
+  if (envelope.v === 1 && typeof envelope.at === "number") {
+    if (!Number.isFinite(envelope.at) || envelope.at > now + 60_000 || now - envelope.at > SESSION_ATTRIBUTION_TTL_MS) {
+      delete session[ATTRIBUTION_SESSION_KEY];
+      return null;
+    }
+    return sanitizeAttribution(envelope.record);
+  }
+  const legacy = sanitizeAttribution(raw);
+  if (!legacy) {
+    delete session[ATTRIBUTION_SESSION_KEY];
+    return null;
+  }
+  session[ATTRIBUTION_SESSION_KEY] = { v: 1, at: now, record: legacy };
+  return legacy;
+}
+
+export function writeSessionAttribution(req: { session?: unknown }, attribution: SignupAttribution | null, now = Date.now()): void {
+  const session = sessionBag(req);
+  if (!session) return;
+  if (attribution && hasAnyAttribution(attribution)) {
+    session[ATTRIBUTION_SESSION_KEY] = { v: 1, at: now, record: attribution } satisfies SessionEnvelope;
+  } else {
+    delete session[ATTRIBUTION_SESSION_KEY];
+  }
+}
+
+export function clearSessionAttribution(req: { session?: unknown }): void {
+  writeSessionAttribution(req, null);
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────
@@ -331,8 +386,17 @@ export async function applySignupAttribution(
   attribution: SignupAttribution | null,
   logTag = "Attribution",
   ctx?: RiskCtx,
+  provider?: string | null,
 ): Promise<ApplyResult> {
   const result: ApplyResult = { attributionWritten: false, referralSignup: false };
+  if (userId) {
+    try {
+      const { recordGrowthSignup } = await import("../services/growthStage1");
+      await recordGrowthSignup(userId, attribution, provider);
+    } catch (err) {
+      console.error(`[${logTag}] growth signup event failed (non-fatal):`, (err as Error)?.message);
+    }
+  }
   if (!userId || !hasAnyAttribution(attribution)) return result;
   let store: AttributionStore;
   try {
@@ -381,15 +445,20 @@ export function isSameOriginRequest(req: Pick<Request, "headers" | "get">): bool
  * cookie; always clears the cookie. Used by POST /api/auth/register.
  */
 export async function attributeNewUserFromRequest(
-  req: Pick<Request, "headers">,
+  req: Pick<Request, "headers"> & { session?: unknown },
   res: Response,
   userId: string,
   bodyInput: unknown,
   logTag: string,
 ): Promise<ApplyResult> {
-  const attribution = mergeAttribution(sanitizeAttribution(bodyInput), readAttributionCookie(req));
+  const attribution = chooseFirstTouch(
+    sanitizeAttribution(bodyInput),
+    readAttributionCookie(req),
+    readSessionAttribution(req),
+  );
   clearAttributionCookie(res);
-  return applySignupAttribution(userId, attribution, logTag, await riskCtxFrom(req));
+  clearSessionAttribution(req);
+  return applySignupAttribution(userId, attribution, logTag, await riskCtxFrom(req), "email");
 }
 
 /** Hashed IP and device id for the referral fraud checks. Never throws. */

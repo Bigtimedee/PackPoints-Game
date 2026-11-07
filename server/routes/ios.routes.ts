@@ -29,13 +29,15 @@ import {
   jwtMiddleware,
 } from "../services/jwtService";
 import { loginLimiter } from "../middleware/rateLimiter";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
   applySignupAttribution, riskCtxFrom,
   clearAttributionCookie,
-  mergeAttribution,
+  clearSessionAttribution,
+  chooseFirstTouch,
   readAttributionCookie,
+  readSessionAttribution,
   sanitizeAttribution,
 } from "../lib/signupAttribution";
 import { recordFunnelEvent } from "../services/funnel";
@@ -193,6 +195,9 @@ export function registerIosRoutes(app: Express) {
 
   /**
    * POST /api/auth/apple
+   * Native Sign in with Apple. The web Continue with Apple button is a WorkOS
+   * redirect, not an Apple form_post. This route is the native identity exchange
+   * used by the iOS client. There is no browser form_post in this repo.
    * Sign in with Apple.
    * Verifies the identityToken (a JWS from Apple) server-side, creates or
    * retrieves the PackPoints user, and returns JWTs.
@@ -224,11 +229,13 @@ export function registerIosRoutes(app: Express) {
     // Web clients carry attribution in the signed pp_attr cookie; native
     // clients may send it in the body. Read once after the token verifies, always clear, and use it
     // only if this request creates the user.
-    const signupAttribution = mergeAttribution(
+    const signupAttribution = chooseFirstTouch(
       sanitizeAttribution(parsed.data.attribution),
       readAttributionCookie(req),
+      readSessionAttribution(req),
     );
     clearAttributionCookie(res);
+    clearSessionAttribution(req);
 
     // Look up existing Apple linkage
     const existingAppleUser = await db
@@ -240,10 +247,16 @@ export function registerIosRoutes(app: Express) {
     let packpointsUser;
 
     if (existingAppleUser.length > 0) {
-      // Returning Apple Sign In user
+      // Returning Apple Sign In user. Not a signup.
       packpointsUser = await storage.getUser(existingAppleUser[0].userId);
       if (!packpointsUser) {
         return res.status(500).json({ error: "User record missing" });
+      }
+      try {
+        const { noteGrowthActivity } = await import("../services/growthStage1");
+        await noteGrowthActivity(packpointsUser.id);
+      } catch (growthErr) {
+        console.error("[Apple Auth] Growth return note failed (non-fatal):", (growthErr as Error)?.message);
       }
     } else {
       // First-time Apple Sign In — create a new PackPoints account
@@ -254,36 +267,39 @@ export function registerIosRoutes(app: Express) {
         email: emailToUse,
       });
 
-      // Create user (no local credential — Apple-only account)
-      const newUser = await db
-        .insert(users)
-        .values({
+      // Create user (no local credential — Apple-only account) and the signup
+      // event in one transaction. A failure rolls both back.
+      const { insertSignupForNewUser } = await import("../services/growthStage1");
+      packpointsUser = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(users)
+          .values({
+            id: randomUUID(),
+            username,
+            usernameNormalized: username.toLowerCase(),
+            email: emailToUse ?? null,
+            emailNormalized: emailToUse?.toLowerCase() ?? null,
+            firstName: fullName?.givenName ?? null,
+            lastName: fullName?.familyName ?? null,
+            status: "ACTIVE",
+            createdAt: sql`(now() AT TIME ZONE 'UTC')`,
+          })
+          .returning();
+        await tx.insert(appleUsers).values({
           id: randomUUID(),
-          username,
-          usernameNormalized: username.toLowerCase(),
-          email: emailToUse ?? null,
-          emailNormalized: emailToUse?.toLowerCase() ?? null,
-          firstName: fullName?.givenName ?? null,
-          lastName: fullName?.familyName ?? null,
-          status: "ACTIVE",
-        })
-        .returning();
-
-      packpointsUser = newUser[0];
-
-      // Record the Apple <-> PackPoints linkage
-      await db.insert(appleUsers).values({
-        id: randomUUID(),
-        userId: packpointsUser.id,
-        appleUserId,
-        email: appleEmailFromToken ?? appleEmail ?? null,
+          userId: created.id,
+          appleUserId,
+          email: appleEmailFromToken ?? appleEmail ?? null,
+        });
+        await insertSignupForNewUser(tx, created.id, signupAttribution, "apple");
+        return created;
       });
 
       console.log(
         `[Apple Auth] Created new user ${packpointsUser.id} for apple_user_id ${appleUserId}`
       );
 
-      await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth", await riskCtxFrom(req));
+      await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth", await riskCtxFrom(req), "apple");
       recordFunnelEvent(req, "signup_complete", {
         userId: packpointsUser.id,
         mode: "apple",

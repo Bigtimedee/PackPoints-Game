@@ -120,6 +120,7 @@ import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
+import { registerGrowthStage1Routes } from "./routes/growthStage1Qa";
 import { registerAuthAccountStatusQaRoute } from "./routes/authAccountStatusQa";
 import { registerPartnerKitRoutes } from "./routes/partnerKit";
 import { registerIgRoutes } from "./routes/igPublish";
@@ -132,7 +133,7 @@ import { registerPointsValueRoute } from "./routes/pointsValue";
 import { registerPointsEventsRoute } from "./routes/pointsEvents";
 import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
 import { isQaTestUser } from "@shared/qaTestAccount";
-import { attributeNewUserFromRequest, sanitizeAttribution } from "./lib/signupAttribution";
+import { attributeNewUserFromRequest, chooseFirstTouch, readAttributionCookie, readSessionAttribution, sanitizeAttribution } from "./lib/signupAttribution";
 import { funnelToken, signupFunnelPath } from "./services/signupFunnel";
 import { allocateLocalUsername, isUsernameConflict } from "./services/localUsername";
 import cardhedgeRouter from "./routes/cardhedge.routes";
@@ -547,6 +548,7 @@ export async function registerRoutes(
   registerDesignApprovalQaRoutes(app);
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
+  registerGrowthStage1Routes(app);
   registerAuthAccountStatusQaRoute(app);
   registerPartnerKitRoutes(app);
   registerIgRoutes(app);
@@ -1290,6 +1292,12 @@ export async function registerRoutes(
           const firstCard = (session.questions?.[0] as any)?.card;
           recordFunnelEvent(req, "game_complete", { userId: nextUserId || null, mode: session.mode, gameSetId: firstCard?.gameSetId || null });
           if (nextUserId) {
+            void import("./services/growthStage1")
+              .then(({ noteGrowthGameCompleted, noteGrowthActivity }) =>
+                Promise.all([noteGrowthGameCompleted(nextUserId), noteGrowthActivity(nextUserId)]))
+              .catch(() => undefined);
+          }
+          if (nextUserId) {
             // Referral: an invitee's first real game pays the inviter (server side only).
             const answered = session.totalQuestions - (session.skippedQuestions ?? 0);
             void (async () => {
@@ -1564,6 +1572,10 @@ export async function registerRoutes(
       recordFunnelEvent(req, "game_complete", { userId, mode: "daily5" });
       if (!result.flagged) {
         recordFirstRegisteredDaily5(req, userId);
+        void import("./services/growthStage1")
+          .then(({ noteGrowthGameCompleted, noteGrowthActivity }) =>
+            Promise.all([noteGrowthGameCompleted(userId), noteGrowthActivity(userId)]))
+          .catch(() => undefined);
         void (async () => {
           const [{ onRegisteredGameComplete }, { getRiskContext }] = await Promise.all([
             import("./services/referralProgram"), import("./services/risk/events"),
@@ -1832,10 +1844,15 @@ export async function registerRoutes(
         }
       }
 
+      const stagedTouch = chooseFirstTouch(
+        sanitizeAttribution(req.body),
+        readAttributionCookie(req),
+        readSessionAttribution(req),
+      );
       let user;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          user = await storage.createLocalUser(username, email, password);
+          user = await storage.createLocalUser(username, email, password, { provider: "email", attribution: stagedTouch });
           break;
         } catch (createErr) {
           if (suppliedUsername || attempt === 1 || !isUsernameConflict(createErr)) throw createErr;
@@ -2078,6 +2095,12 @@ export async function registerRoutes(
         await claimAnonForUser(req, res, user.id);
       } catch (claimErr) {
         console.error("[Login] Guest escrow claim failed (non-fatal):", claimErr);
+      }
+      try {
+        const { noteGrowthActivity } = await import("./services/growthStage1");
+        await noteGrowthActivity(user.id);
+      } catch (growthErr) {
+        console.error("[Login] Growth return note failed (non-fatal):", (growthErr as Error)?.message);
       }
       
       // Get updated user stats after transferring points

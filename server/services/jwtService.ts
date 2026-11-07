@@ -159,6 +159,12 @@ export async function jwtMiddleware(req: any, _res: any, next: any) {
     const claims = await verifyAccessToken(token);
     if (claims) {
       req.jwtUser = claims;
+      const userId = typeof claims.sub === "string" ? claims.sub : null;
+      if (userId) {
+        void import("./growthStage1")
+          .then(({ noteGrowthActivity }) => noteGrowthActivity(userId))
+          .catch(() => undefined);
+      }
     }
   }
   next();

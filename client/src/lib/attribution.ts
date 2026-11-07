@@ -9,8 +9,9 @@ import { rememberDaily5AuthReturn } from "./daily5AuthReturn";
  * signal (no utm and no ref) may be replaced once by a later tagged touch, so
  * an earlier plain visit does not hide the creator link that brought someone
  * back. A visit with no utm_source and an Instagram referrer host is stored as
- * utm_source=instagram, utm_medium=social, utm_content=bio. Explicit utm
- * values on that visit are kept. sessionStorage keeps the legacy packpts_utm
+ * utm_source=instagram, utm_medium=social, utm_content=bio and marked inferred.
+ * A later supplied utm_source replaces that guess. Explicit utm values on the
+ * same visit are kept. sessionStorage keeps the legacy packpts_utm
  * key for compatibility and a copy of the record in case localStorage is
  * unavailable.
  *
@@ -26,6 +27,11 @@ export const ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"] as const;
 type UtmKey = (typeof UTM_KEYS)[number];
 
+/**
+ * Raw UTM cap. The clarified campaign contract is at most 16 characters and
+ * the publisher content column is 40. 100 keeps both, plus a longer raw
+ * campaign, without truncating them. Classification does not widen the queue.
+ */
 const VALUE_MAX = 100;
 const PATH_MAX = 200;
 const HOST_MAX = 100;
@@ -43,6 +49,8 @@ export type FirstTouchRecord = {
   ref?: string;
   landing_path?: string;
   referrer_host?: string;
+  /** Source was filled from an Instagram referrer, not from utm_source. */
+  inferred?: true;
 };
 
 export type SignupAttributionPayload = {
@@ -54,6 +62,7 @@ export type SignupAttributionPayload = {
   referredByCode?: string;
   landingPage?: string;
   referrerHost?: string;
+  attributionInferred?: true;
 };
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -128,6 +137,7 @@ function parseRecord(raw: string | null, now: number): FirstTouchRecord | null {
     const r = JSON.parse(raw) as FirstTouchRecord;
     if (!r || r.v !== 1 || typeof r.ts !== "number") return null;
     if (now - r.ts > ATTRIBUTION_TTL_MS || r.ts > now + 60_000) return null;
+    if (r.inferred !== true) delete r.inferred;
     return r;
   } catch {
     return null;
@@ -187,6 +197,7 @@ export function touchFromEnv(env: AttributionEnv): FirstTouchRecord {
     r.utm_source = "instagram";
     if (!r.utm_medium) r.utm_medium = "social";
     if (!r.utm_content) r.utm_content = "bio";
+    r.inferred = true;
   }
   return r;
 }
@@ -206,7 +217,10 @@ export function captureFirstTouch(env: AttributionEnv | null = browserAttributio
   if (Object.keys(legacy).length > 0) write(env.session, LEGACY_UTM_SESSION_KEY, JSON.stringify(legacy));
 
   const existing = readFirstTouch(env);
-  if (existing && (hasCampaignSignal(existing) || !hasCampaignSignal(touch))) {
+  const incomingReal = hasCampaignSignal(touch) && touch.inferred !== true;
+  // A referrer guess must not block a later supplied campaign link.
+  if (existing?.inferred === true && !incomingReal) return existing;
+  if (existing && existing.inferred !== true && (hasCampaignSignal(existing) || !hasCampaignSignal(touch))) {
     return existing;
   }
   const serialized = JSON.stringify(touch);
@@ -248,6 +262,7 @@ export function getSignupAttributionPayload(
   if (record?.ref) out.referredByCode = record.ref;
   if (record?.landing_path) out.landingPage = record.landing_path;
   if (record?.referrer_host) out.referrerHost = record.referrer_host;
+  if (record?.inferred) out.attributionInferred = true;
   return out;
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from "react";
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, useSearch } from "wouter";
 import { queryClient, captureUtmParams } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
@@ -388,6 +388,10 @@ function Router() {
 
 function AppShell() {
   const [location] = useLocation();
+  const search = useSearch();
+  useEffect(() => {
+    captureUtmParams();
+  }, [location, search]);
   const isMatchRoute = location === "/match" || location.startsWith("/match/");
   const isGameRoute = location.startsWith("/game/");
   const isReviewRoute = location.startsWith("/review/");

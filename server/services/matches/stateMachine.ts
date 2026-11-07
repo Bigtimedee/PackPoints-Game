@@ -63,6 +63,12 @@ export async function maybeFinish(matchState: MatchState): Promise<MatchEndResul
   await db.update(lobbies).set({ status: "completed" }).where(eq(lobbies.id, matchState.lobbyId));
   
   console.log(`[StateMachine] Match ${matchState.matchId} FINISHED: winner=${winner}, endReason=completed`);
+  for (const participant of matchState.participants) {
+    if (!participant.userId) continue;
+    void import("../growthStage1")
+      .then(({ noteGrowthGameCompleted }) => noteGrowthGameCompleted(participant.userId))
+      .catch(() => undefined);
+  }
   
   return {
     matchId: matchState.matchId,
