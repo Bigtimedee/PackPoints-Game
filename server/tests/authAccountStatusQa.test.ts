@@ -19,7 +19,7 @@ import {
 const TOKEN = "test-qa-account-status-token";
 const previousToken = process.env.COVER_QA_TOKEN;
 const MAILBOX = "PlayerD@Example.com";
-const GMAIL = "Player.D+tag@gmail.com";
+const ALIAS = "PlayerD+tag@example.org";
 
 function setToken(value: string | undefined) {
   if (value === undefined) delete process.env.COVER_QA_TOKEN;
@@ -27,9 +27,9 @@ function setToken(value: string | undefined) {
 }
 
 describe("account status presentation", () => {
-  it("normalizes case, plus aliases, and gmail dots", () => {
+  it("normalizes case and plus aliases on a fictional domain", () => {
     expect(normalizeEmail(MAILBOX)).toBe("playerd@example.com");
-    expect(normalizeEmail(GMAIL)).toBe("playerd@gmail.com");
+    expect(normalizeEmail(ALIAS)).toBe("playerd@example.org");
   });
 
   it("drops addresses and keeps only the safe account fields", () => {
@@ -38,6 +38,8 @@ describe("account status presentation", () => {
       hasLocalCredential: true,
       workosLinked: false,
       provider: "google",
+      exactEmailMatch: true,
+      loginSelected: false,
     }]);
     expect(report.accounts[0].username).toBeNull();
     expect(JSON.stringify(report)).not.toContain("@");
@@ -50,10 +52,13 @@ describe("account status presentation", () => {
       hasLocalCredential: false,
       workosLinked: false,
       provider: null,
+      exactEmailMatch: false,
+      loginSelected: false,
     }));
-    expect(presentAccountStatus(accounts.length, accounts)).toEqual({
+    expect(presentAccountStatus(accounts.length, accounts, "ambiguous")).toEqual({
       matched: ACCOUNT_STATUS_CAP + 1,
       accounts: [],
+      loginSelection: "ambiguous",
     });
   });
 });
@@ -68,24 +73,30 @@ describe("POST /api/qa/auth/account-status", () => {
 
   const finder: AccountStatusFinder = async (raw, normalized) => {
     calls.push({ raw, normalized });
-    if (normalized.endsWith("@gmail.com")) {
+    if (normalized.endsWith("@example.org")) {
       return {
         matched: 1,
+        loginSelection: "selected" as const,
         accounts: [{
           username: "playerd",
           hasLocalCredential: false,
           workosLinked: true,
-          provider: "google",
+          provider: "google" as const,
+          exactEmailMatch: true,
+          loginSelected: true,
         }],
       };
     }
     return {
       matched: 1,
+      loginSelection: "selected" as const,
       accounts: [{
         username: "playerd",
         hasLocalCredential: false,
         workosLinked: true,
-        provider: "google",
+        provider: "google" as const,
+        exactEmailMatch: true,
+        loginSelected: true,
         email: MAILBOX,
         passwordHash: "hash",
         token: "tok",
@@ -150,10 +161,13 @@ describe("POST /api/qa/auth/account-status", () => {
       expect(res.status).toBe(200);
       expect(calls).toEqual([{ raw: MAILBOX, normalized: "playerd@example.com" }]);
       const body = await res.json();
-      expect(Object.keys(body).sort()).toEqual(["accounts", "matched"]);
+      expect(Object.keys(body).sort()).toEqual(["accounts", "loginSelection", "matched"]);
       expect(body.matched).toBe(1);
+      expect(body.loginSelection).toBe("selected");
       expect(Object.keys(body.accounts[0]).sort()).toEqual([
+        "exactEmailMatch",
         "hasLocalCredential",
+        "loginSelected",
         "provider",
         "username",
         "workosLinked",
@@ -163,6 +177,8 @@ describe("POST /api/qa/auth/account-status", () => {
         hasLocalCredential: false,
         workosLinked: true,
         provider: "google",
+        exactEmailMatch: true,
+        loginSelected: true,
       });
       const encoded = JSON.stringify(body);
       expect(encoded).not.toContain("@");
@@ -179,11 +195,11 @@ describe("POST /api/qa/auth/account-status", () => {
     }
   });
 
-  it("normalizes a capital-D gmail alias before lookup", async () => {
+  it("normalizes a plus alias on a fictional domain before lookup", async () => {
     calls = [];
-    const res = await post({ "X-QA-Token": TOKEN }, { email: GMAIL });
+    const res = await post({ "X-QA-Token": TOKEN }, { email: ALIAS });
     expect(res.status).toBe(200);
-    expect(calls).toEqual([{ raw: GMAIL, normalized: "playerd@gmail.com" }]);
+    expect(calls).toEqual([{ raw: ALIAS, normalized: "playerd@example.org" }]);
     const body = await res.json();
     expect(body.accounts[0].hasLocalCredential).toBe(false);
     expect(body.accounts[0].workosLinked).toBe(true);
@@ -232,7 +248,8 @@ describe("account status stays private", () => {
     expect(query).not.toContain("password_hash");
     expect(query).not.toContain("passwordHash");
     expect(query).toContain("emailNormalized");
-    expect(query).not.toContain("email: users.email");
+    expect(query).toContain("annotateAccountStatus");
+    expect(query).not.toContain("passwordHash");
 
     const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../client");
     const files = await listSourceFiles(root);

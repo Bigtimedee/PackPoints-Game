@@ -2215,7 +2215,7 @@ export async function registerRoutes(
     try {
       const result = await requestPasswordReset({
         email: req.body?.email,
-        getUserByEmail: (email) => storage.getUserByEmail(email),
+        getUserByEmail: (email) => storage.findUserForPasswordReset(email),
         createPasswordResetToken: (userId) => storage.createPasswordResetToken(userId),
         sendPasswordResetEmail,
         baseUrl: process.env.APP_URL || "https://packpts.com",

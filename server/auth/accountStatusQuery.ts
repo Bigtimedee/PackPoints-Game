@@ -3,11 +3,11 @@ import { appleUsers, localCredentials, users } from "@shared/schema";
 import { db } from "../db";
 import {
   ACCOUNT_STATUS_CAP,
-  presentAccountStatus,
-  safeUsername,
+  annotateAccountStatus,
   sanitizeProvider,
   type AccountStatusReport,
 } from "./accountStatus";
+import type { IdentityCandidate } from "./identitySelect";
 
 function asBool(value: unknown): boolean {
   return value === true || value === "t" || value === "true" || value === 1;
@@ -15,15 +15,33 @@ function asBool(value: unknown): boolean {
 
 /**
  * Read-only status for one normalized mailbox.
- * Selects no email, password hash, token, or session.
+ * The stored address is used only to set exactEmailMatch and is not returned.
+ * No password hash, token, or session is selected.
  */
+function candidateWhere(trimmed: string) {
+  return or(
+    sql`lower(btrim(${users.username})) = lower(${trimmed})`,
+    sql`lower(btrim(${users.email})) = lower(${trimmed})`,
+  );
+}
+
 export async function findAuthAccountStatus(normalizedEmail: string, rawEmail: string): Promise<AccountStatusReport> {
-  const lowered = rawEmail.trim().toLowerCase();
+  const trimmed = rawEmail.trim();
+  const lowered = trimmed.toLowerCase();
   const where = or(
     sql`${users.emailNormalized} = ${normalizedEmail}`,
-    sql`lower(${users.email}) = ${lowered}`,
-    sql`lower(${users.email}) = ${normalizedEmail}`,
+    sql`lower(btrim(${users.email})) = ${lowered}`,
+    sql`lower(btrim(${users.email})) = ${normalizedEmail}`,
   );
+
+  const loginCandidates: IdentityCandidate[] = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+    })
+    .from(users)
+    .where(candidateWhere(trimmed));
 
   const [countRow] = await db
     .select({ matched: sql<number>`count(*)::int` })
@@ -31,12 +49,13 @@ export async function findAuthAccountStatus(normalizedEmail: string, rawEmail: s
     .where(where);
   const matched = Number(countRow?.matched) || 0;
   if (matched === 0 || matched > ACCOUNT_STATUS_CAP) {
-    return presentAccountStatus(matched, []);
+    return annotateAccountStatus(trimmed, matched, [], loginCandidates);
   }
 
   const rows = await db
     .select({
       id: users.id,
+      email: users.email,
       username: users.username,
       oauthProvider: users.oauthProvider,
       workosLinked: sql<boolean>`(${users.workosUserId} is not null)`,
@@ -61,13 +80,17 @@ export async function findAuthAccountStatus(normalizedEmail: string, rawEmail: s
   const withCredential = new Set(credentialRows.map((row) => row.userId));
   const withApple = new Set(appleRows.map((row) => row.userId));
 
-  return presentAccountStatus(
+  return annotateAccountStatus(
+    trimmed,
     matched,
     rows.map((row) => ({
-      username: safeUsername(row.username),
+      id: row.id,
+      email: row.email,
+      username: row.username,
       hasLocalCredential: withCredential.has(row.id),
       workosLinked: asBool(row.workosLinked),
       provider: sanitizeProvider(row.oauthProvider, withApple.has(row.id)),
     })),
+    loginCandidates,
   );
 }
