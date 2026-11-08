@@ -131,7 +131,17 @@ describe("original pool health", () => {
     })).toContain("short_side");
     expect(sourceFailReasons({
       width: 600, height: 800, hasSource: true, hasMasked: true, nameCheckPassed: false,
-    })).toContain("name_check_missing");
+    })).toContain("name_check_failed");
+    expect(sourceFailReasons({
+      width: 600, height: 800, hasSource: true, hasMasked: true, nameCheckPassed: null,
+    })).toContain("name_check_unknown");
+    const unknown = evaluatePoolHealth({
+      originalCardIds: ["a", "b"],
+      results: [{ cardId: "a", passed: false, findingsComplete: false }, { cardId: "b", passed: true, findingsComplete: true }],
+    });
+    expect(unknown.verdict).toBe("findings_incomplete");
+    expect(unknown.originalPassRate).toBeNull();
+    expect(unknown.thresholdClaimed).toBe(false);
     expect(sourceFailReasons({
       width: 600, height: 800, hasSource: true, hasMasked: true, nameCheckPassed: true, variant: "Base",
     })).toEqual([]);

@@ -51,7 +51,11 @@ export async function runSchemaGate(opts: {
   } else {
     logBootPhase("fast_schema_fallback", { reason: "hash_mismatch" });
   }
-  await opts.push("foreground");
+  const foreground = await opts.push("foreground");
+  if (!foreground.pushed) {
+    console.error("[Startup] FATAL: schema push did not apply. Refusing to open routes.");
+    throw new Error("schema_not_ready");
+  }
   return { mode: "fast_schema_fallback", background: null };
 }
 

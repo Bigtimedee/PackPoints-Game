@@ -5,12 +5,12 @@ import express from "express";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { cardJpegName } from "../services/baseballExpansion/exportSet";
+import { assertContained, cardJpegName } from "../services/baseballExpansion/exportSet";
 import { missingExpansionTargets } from "../services/baseballExpansion/registry";
 
 const target = missingExpansionTargets().find((row) => row.slug === "1990-topps-baseball")!;
@@ -21,13 +21,20 @@ let base = "";
 let server: ReturnType<typeof createServer> | null = null;
 let jpeg = Buffer.alloc(0);
 let failMasked = false;
+let unprofiled = false;
 
 beforeAll(async () => {
   jpeg = await sharp({ create: { width: 600, height: 800, channels: 3, background: { r: 1, g: 2, b: 3 } } }).jpeg().toBuffer();
   const app = express();
   app.get("/api/qa/baseball-expansion/:id/profile", (req, res) => {
     if (req.get("x-qa-token") !== token) return res.status(404).end();
-    res.json({ explicit: true, profileId: "measured", side: "bottom", regions: [{ x: 0, y: 0.86, w: 1, h: 0.14 }], releaseApproval: false });
+    res.json({
+      explicit: !unprofiled,
+      profileId: unprofiled ? null : "measured",
+      side: unprofiled ? null : "bottom",
+      regions: unprofiled ? null : [{ x: 0, y: 0.86, w: 1, h: 0.14 }],
+      releaseApproval: false,
+    });
   });
   app.get("/api/qa/sets/:id/cards", (req, res) => {
     if (req.get("x-qa-token") !== token) return res.status(404).end();
@@ -41,6 +48,10 @@ beforeAll(async () => {
         imageUrl: `https://img.example/${cardId}.jpg`,
         sourcePath: `/file/${cardId}/source`,
         maskedPath: `/file/${cardId}/masked`,
+        variant: "Base",
+        isPlayable: true,
+        blockedReason: null,
+        nameCheck: "unknown",
       })),
     });
   });
@@ -71,6 +82,33 @@ function runExport(out: string, review: boolean): Promise<{ code: number | null;
 }
 
 describe("box export executable", () => {
+  it("source-only discovery succeeds without a mask or a review marker", async () => {
+    unprofiled = true;
+    failMasked = true;
+    const out = mkdtempSync(path.join(tmpdir(), "packpts-box-"));
+    const result = await runExport(out, false);
+    unprofiled = false;
+    failMasked = false;
+    expect(result.code, result.stdout).toBe(0);
+    const dir = path.join(out, target.slug);
+    expect(existsSync(path.join(dir, "source", `${cardA}.jpg`))).toBe(true);
+    expect(existsSync(path.join(dir, "masked", `${cardA}.jpg`))).toBe(false);
+    expect(existsSync(path.join(dir, "REVIEW_READY"))).toBe(false);
+    expect(existsSync(path.join(dir, "pool.csv"))).toBe(true);
+    rmSync(out, { recursive: true, force: true });
+  });
+
+  it("refuses a symlink nested under source, masked, or covers", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "packpts-link-"));
+    mkdirSync(path.join(root, "source"));
+    symlinkSync("/tmp", path.join(root, "source", "outside"));
+    expect(() => assertContained(root, "source/outside/x.jpg")).toThrow(/symlink/);
+    mkdirSync(path.join(root, "covers"));
+    symlinkSync("/tmp", path.join(root, "covers", "pick.jpg"));
+    expect(() => assertContained(root, "covers/pick.jpg")).toThrow(/symlink/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("rejects a card id that is not a single path segment", () => {
     expect(cardJpegName("../etc/passwd")).toBeNull();
     expect(cardJpegName(`${cardA}/x`)).toBeNull();
@@ -94,6 +132,10 @@ describe("box export executable", () => {
     const marker = JSON.parse(readFileSync(path.join(dir, "REVIEW_READY"), "utf8"));
     expect(marker.reviewReady).toBe(true);
     expect(marker.releaseApproval).toBe(false);
+    const reconciliation = JSON.parse(readFileSync(path.join(dir, "reconciliation.json"), "utf8"));
+    expect(reconciliation.verdict).toBe("findings_incomplete");
+    expect(reconciliation.thresholdClaimed).toBe(false);
+    expect(JSON.parse(readFileSync(path.join(dir, "covers", "NOT_DAILY5.json"), "utf8")).approved).toBe(false);
     rmSync(out, { recursive: true, force: true });
   });
 

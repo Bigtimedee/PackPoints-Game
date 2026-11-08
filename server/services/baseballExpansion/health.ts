@@ -18,6 +18,7 @@ export const POOL_VERDICTS = [
   "below_engineering_minimum",
   "released_leak",
   "incomplete",
+  "findings_incomplete",
 ] as const;
 
 export type PoolVerdict = (typeof POOL_VERDICTS)[number];
@@ -25,6 +26,8 @@ export type PoolVerdict = (typeof POOL_VERDICTS)[number];
 export interface PoolCardResult {
   cardId: string;
   passed: boolean;
+  /** False when a human name-check finding does not exist yet. */
+  findingsComplete?: boolean;
 }
 
 export interface StoredHealth {
@@ -48,6 +51,10 @@ export interface PoolHealth {
   verdict: PoolVerdict;
   cherryPickAllowed: false;
   releaseAuthorized: boolean;
+  /** False until a human full-pool pass/drop exists for every original id. */
+  findingsComplete: boolean;
+  /** A numeric rate is not a 95% claim while findings are incomplete. */
+  thresholdClaimed: boolean;
   addedAfterSubmission: string[];
 }
 
@@ -71,8 +78,10 @@ export function evaluatePoolHealth(input: {
   }
   const failedCardIds: string[] = [];
   let passedCount = 0;
+  let unknownCount = 0;
   for (const id of original) {
     const result = byId.get(id);
+    if (result?.findingsComplete === false) { unknownCount += 1; continue; }
     if (result?.passed) passedCount += 1;
     else failedCardIds.push(id);
   }
@@ -83,8 +92,10 @@ export function evaluatePoolHealth(input: {
   const originalCount = original.length;
   const originalPassRate = originalCount === 0 ? null : passedCount / originalCount;
   const releasedPassRate = releaseIds.length === 0 ? null : releasedPassCount / releaseIds.length;
+  const findingsComplete = unknownCount === 0;
   let verdict: PoolVerdict = "pass";
   if (originalCount === 0 || original.some((id, index) => original.indexOf(id) !== index)) verdict = "incomplete";
+  else if (!findingsComplete) verdict = "findings_incomplete";
   else if (leaked || releasedPassCount !== releaseIds.length) verdict = "released_leak";
   else if (originalPassRate == null || originalPassRate < ORIGINAL_POOL_PASS_RATE) verdict = "resubmit_systemic";
   else if (releaseIds.length < minimum) verdict = "below_engineering_minimum";
@@ -95,13 +106,15 @@ export function evaluatePoolHealth(input: {
     failedCardIds,
     releasedCount: verdict === "pass" ? releaseIds.length : 0,
     releasedPassCount: verdict === "pass" ? releasedPassCount : 0,
-    originalPassRate,
-    releasedPassRate,
+    originalPassRate: findingsComplete ? originalPassRate : null,
+    releasedPassRate: findingsComplete ? releasedPassRate : null,
     threshold: ORIGINAL_POOL_PASS_RATE,
     engineeringMinimum: minimum,
     verdict,
     cherryPickAllowed: false,
-    releaseAuthorized: verdict === "pass",
+    releaseAuthorized: findingsComplete && verdict === "pass",
+    findingsComplete,
+    thresholdClaimed: findingsComplete && verdict === "pass",
     addedAfterSubmission: added,
   };
 }
@@ -113,7 +126,8 @@ export function sourceFailReasons(input: {
   isPlayable?: boolean;
   hasSource: boolean;
   hasMasked: boolean;
-  nameCheckPassed: boolean;
+  /** null means the name check has not been reviewed. That is not a pass. */
+  nameCheckPassed: boolean | null;
   maskRefused?: boolean;
   variant?: string | null;
 }): string[] {
@@ -127,7 +141,8 @@ export function sourceFailReasons(input: {
   if (input.isPlayable === false) reasons.push(input.blockedReason || "not_playable");
   else if (input.blockedReason) reasons.push(input.blockedReason);
   if (input.maskRefused) reasons.push("mask_refused");
-  if (!input.nameCheckPassed) reasons.push("name_check_missing");
+  if (input.nameCheckPassed === false) reasons.push("name_check_failed");
+  else if (input.nameCheckPassed == null) reasons.push("name_check_unknown");
   return [...new Set(reasons)];
 }
 

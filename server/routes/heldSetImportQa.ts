@@ -28,6 +28,7 @@ import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { recropReviewPage } from "../masking/recropReviewStatus";
 import { isRecropReviewSet, recropBlockedCard, recropPermanentlyExcluded } from "../masking/toppsRecropReview";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
+import { readNameVisibilityPassed } from "../masking/nameOutsideMask";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SOURCE_BYTES = 15 * 1024 * 1024;
@@ -129,6 +130,7 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
           isPlayable: Boolean(r.is_playable), blockedReason: r.blocked_reason, hasImage: Boolean(r.has_image),
           imageUrl: r.image_url && r.image_url.startsWith("https://") ? r.image_url : null,
           approved: Boolean(r.approved),
+          nameCheck: r.blocked_reason === "name_visible_outside_mask" ? "failed" : readNameVisibilityPassed(r.id) ? "passed" : "unknown",
           sourcePath: `/api/qa/sets/${setId}/source/${r.id}`,
           maskedPath: `/api/qa/cover-image/${r.id}`,
         })),

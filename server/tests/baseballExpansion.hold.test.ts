@@ -131,7 +131,7 @@ describe("16 missing sets stay held and unreachable", () => {
     }
   });
 
-  it("blocks public set pages, covers, play masks, and Design GREEN", async () => {
+  it("isolation: held game-start gate and play-mask gate, not a full game-start E2E", async () => {
     for (const target of targets) {
       const cardId = `00000000-0000-4000-8000-${target.id.slice(-12)}`;
       const setRes = await fetch(`${base}/api/sets/${target.id}`);
@@ -162,6 +162,36 @@ describe("16 missing sets stay held and unreachable", () => {
       expect(greenBody.code).toBe("held_prep_only");
       expect(JSON.stringify(greenBody)).not.toMatch(/CARDHEDGE|COVER_QA/);
     }
+    const clearedId = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
+    const clearedCard = "12121212-1212-4121-8121-121212121212";
+    await insertIntegratedGameSet({
+      id: clearedId, sport: "baseball", brand: "Topps", year: 1987, setName: "1987 Topps Baseball", isActive: true,
+    });
+    await db.insert(playableCards).values({
+      id: clearedCard, gameSetId: clearedId, cardhedgeCardId: `cleared:${clearedCard}`, player: "Cleared Player",
+      set: "1987 Topps Baseball", number: "9", variant: "Base", imageUrl: "https://img.example/cleared.jpg",
+      category: "Baseball", isPlayable: true,
+    }).onConflictDoNothing();
+    await db.insert(gameSessionsTable).values({
+      id: `session-${clearedId}`, mode: "solo", questions: [{ card: { id: clearedCard, playableCardId: clearedCard } }],
+      totalQuestions: 1, startedAt: new Date().toISOString(),
+    }).onConflictDoNothing();
+    await writeFile(path.join(MASKED_CARDS_DIR, `${clearedCard}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 3, 32, 2, 88]));
+    await writeFile(path.join(MASKED_CARDS_DIR, `${clearedCard}_${CURRENT_MASK_VERSION}.ok`), "ok\n");
+    await refreshHeldSets();
+    resetPublicMaskSetCacheForTests();
+    const allowed = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: `session-${clearedId}`, index: 0, cardId: clearedCard })}`);
+    expect(allowed.status).toBe(200);
+    const allowedBytes = Buffer.from(await allowed.arrayBuffer());
+    expect(allowedBytes[0]).toBe(0xff);
+    expect(allowedBytes[1]).toBe(0xd8);
+    const heldTarget = targets[0]!;
+    const heldCard = `00000000-0000-4000-8000-${heldTarget.id.slice(-12)}`;
+    const denied = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: `session-${heldTarget.id}`, index: 0, cardId: heldCard })}`);
+    expect(denied.status).toBe(404);
+    expect(Buffer.from(await denied.arrayBuffer())[0]).not.toBe(0xff);
+    await db.delete(gameSessionsTable).where(eq(gameSessionsTable.id, `session-${clearedId}`));
+    await db.delete(playableCards).where(eq(playableCards.id, clearedCard));
   });
 
   it("keeps every id out of Daily 5 even when the hold flag is ignored and the id is scheduled", async () => {

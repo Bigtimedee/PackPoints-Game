@@ -259,7 +259,12 @@ app.use((req, res, next) => {
     console.error("[Startup] oauth_provider column ensure failed:", err instanceof Error ? err.message : err);
   }
   if (process.env.NODE_ENV === "production" && process.env.PACKPTS_SKIP_BOOT_SCHEMA !== "1") {
-    await runProductionSchemaBoot();
+    try {
+      await runProductionSchemaBoot();
+    } catch (err) {
+      console.error("[Startup] FATAL: required schema is not in place. Not opening routes.", err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
   }
 
   // Per-card review guard. Seeds card_review_approvals once (every card dealable

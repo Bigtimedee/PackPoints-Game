@@ -8,7 +8,7 @@
  * A later smaller export does not replace the original submitted manifest.
  */
 import { createHash } from "crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import sharp from "sharp";
 import {
@@ -46,7 +46,7 @@ export interface ExportCardInput {
   maskedPath?: string | null;
   blockedReason?: string | null;
   isPlayable?: boolean;
-  nameCheckPassed: boolean;
+  nameCheckPassed: boolean | null;
   maskRefused?: boolean;
   variant?: string | null;
   proposedCover?: boolean;
@@ -84,6 +84,25 @@ const CARD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function cardJpegName(cardId: string): string | null {
   if (!CARD_ID.test(cardId)) return null;
   return `${cardId.toLowerCase()}.jpg`;
+}
+
+/** Walk every component with lstat. A symlink anywhere in the path is refused. */
+export function assertContained(root: string, relativePath: string): string {
+  const realRoot = realpathSync(root);
+  const rel = path.relative(realRoot, path.resolve(realRoot, relativePath));
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("path escapes private root");
+  let current = realRoot;
+  for (const part of rel.split(path.sep)) {
+    if (!part || part === "." || part === "..") throw new Error("path escapes private root");
+    current = path.join(current, part);
+    try {
+      if (lstatSync(current).isSymbolicLink()) throw new Error("symlink refused");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return current;
+      throw error;
+    }
+  }
+  return current;
 }
 
 export function clearReviewMarkers(directory: string): void {
@@ -224,10 +243,12 @@ export async function exportDesignSet(input: {
     return poolLine({ ...card, width: size?.width ?? card.width, height: size?.height ?? card.height });
   })].join("\n") + "\n");
 
-  const results = originalIds.map((id) => ({
-    cardId: id,
-    passed: (measured.get(id)?.reasons.length ?? 1) === 0,
-  }));
+  const results = originalIds.map((id) => {
+    const reasons = measured.get(id)?.reasons ?? ["missing"];
+    const unknown = reasons.includes("name_check_unknown");
+    const hard = reasons.filter((reason) => reason !== "name_check_unknown");
+    return { cardId: id, passed: !unknown && hard.length === 0, findingsComplete: !unknown };
+  });
   const health = evaluatePoolHealth({
     originalCardIds: originalIds,
     results,
@@ -275,6 +296,7 @@ export async function exportDesignSet(input: {
   writeFileSync(path.join(directory, "covers", "NOT_DAILY5.json"), JSON.stringify({
     dealDaily5: false,
     pinned: false,
+    approved: false,
     cardIds: coverIds,
   }, null, 2) + "\n");
 
@@ -308,6 +330,9 @@ export async function exportDesignSet(input: {
     manifestSha256: manifestSha,
     dealDaily5: false,
     pinnedCovers: false,
+    coverApproved: false,
+    findingsComplete: health.findingsComplete,
+    thresholdClaimed: health.thresholdClaimed,
   };
   const packetMissing = reviewReady ? reviewPacketMissing(directory, originalIds).filter((name) => name !== "reconciliation.json") : ["source-only"];
   const packetReady = reviewReady && packetMissing.length === 0;

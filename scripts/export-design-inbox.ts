@@ -12,9 +12,9 @@
  * full paired packet. Refuses symlinks and public, static, dist, or
  * masked-cards destinations.
  */
-import { createWriteStream, lstatSync, mkdirSync, realpathSync, renameSync, rmSync } from "fs";
+import { createWriteStream, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, rmSync } from "fs";
 import path from "path";
-import { cardJpegName, clearReviewMarkers, exportDesignSet } from "../server/services/baseballExpansion/exportSet";
+import { assertContained, cardJpegName, clearReviewMarkers, exportDesignSet } from "../server/services/baseballExpansion/exportSet";
 import { expansionTargetById } from "../server/services/baseballExpansion/registry";
 
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -88,7 +88,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const root = privateBoxDirectory(path.resolve(out));
-  const directory = privateBoxDirectory(path.join(root, target.slug));
+  const published = path.join(root, target.slug);
+  if (existsSync(published)) {
+    if (lstatSync(published).isSymbolicLink()) throw new Error("symlink destination refused");
+    clearReviewMarkers(published);
+  }
+  const staging = privateBoxDirectory(path.join(root, `.staging-${target.slug}-${process.pid}`));
+  const directory = staging;
   clearReviewMarkers(directory);
   mkdirSync(path.join(directory, "source"), { recursive: true });
   mkdirSync(path.join(directory, "masked"), { recursive: true });
@@ -107,23 +113,30 @@ async function main(): Promise<void> {
     let offset = 0;
     for (;;) {
       const page = await readJson(`${base}/api/qa/sets/${setId}/cards?offset=${offset}&limit=20`, token) as {
-        cards?: { cardId: string; player: string | null; number: string | null; imageUrl: string | null; sourcePath: string; maskedPath: string }[];
+        cards?: {
+          cardId: string; player: string | null; number: string | null; imageUrl: string | null;
+          sourcePath: string; maskedPath: string; variant?: string | null;
+          isPlayable?: boolean; blockedReason?: string | null; nameCheck?: "passed" | "failed" | "unknown";
+        }[];
       };
       const rows = page.cards || [];
       if (rows.length === 0) break;
       for (const row of rows) {
         const name = cardJpegName(row.cardId);
         if (!name) throw new Error("card id is not a path segment");
-        const sourcePath = path.join(directory, "source", name);
-        const maskedPath = path.join(directory, "masked", name);
+        const sourcePath = assertContained(directory, path.join("source", name));
+        const maskedPath = assertContained(directory, path.join("masked", name));
         await streamFile(`${base}${row.sourcePath}`, token, sourcePath);
-        try {
-          await streamFile(`${base}${row.maskedPath}`, token, maskedPath);
-        } catch (error) {
-          rmSync(sourcePath, { force: true });
-          rmSync(maskedPath, { force: true });
-          throw error;
+        if (review) {
+          try {
+            await streamFile(`${base}${row.maskedPath}`, token, maskedPath);
+          } catch (error) {
+            rmSync(sourcePath, { force: true });
+            rmSync(maskedPath, { force: true });
+            throw error;
+          }
         }
+        const nameCheck = row.nameCheck === "passed" ? true : row.nameCheck === "failed" ? false : null;
         cards.push({
           heldId: row.cardId.toLowerCase(),
           player: row.player || "",
@@ -134,9 +147,11 @@ async function main(): Promise<void> {
           sourceJpeg: null,
           maskedJpeg: null,
           sourcePath,
-          maskedPath,
-          nameCheckPassed: true,
-          variant: "Base",
+          maskedPath: review ? maskedPath : null,
+          nameCheckPassed: nameCheck,
+          isPlayable: row.isPlayable,
+          blockedReason: row.blockedReason ?? null,
+          variant: row.variant ?? null,
           proposedCover: cards.length < 8,
         });
       }
@@ -156,6 +171,17 @@ async function main(): Promise<void> {
       mode: review ? "review" : "source",
     });
     if (!result.ready) clearReviewMarkers(directory);
+    if (lstatSync(staging).isSymbolicLink()) throw new Error("symlink destination refused");
+    if (existsSync(published)) {
+      if (lstatSync(published).isSymbolicLink()) throw new Error("symlink destination refused");
+      const previous = path.join(root, `.previous-${target.slug}-${process.pid}`);
+      rmSync(previous, { recursive: true, force: true });
+      renameSync(published, previous);
+      renameSync(staging, published);
+      rmSync(previous, { recursive: true, force: true });
+    } else {
+      renameSync(staging, published);
+    }
     console.log(JSON.stringify({
       setId,
       rows: cards.length,
@@ -166,6 +192,7 @@ async function main(): Promise<void> {
     if (review && !result.ready) process.exit(2);
   } catch (error) {
     clearReviewMarkers(directory);
+    rmSync(directory, { recursive: true, force: true });
     console.error(error instanceof Error ? error.message : "export failed");
     process.exit(1);
   }

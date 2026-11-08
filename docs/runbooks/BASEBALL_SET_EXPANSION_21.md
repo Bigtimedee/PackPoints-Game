@@ -68,7 +68,15 @@ This is not tables only.
 - Partial unique index `uq_game_sets_canonical_identity` where that column is not null. Existing rows stay null.
 - Table `design_pool_submissions` for a later full-pool GREEN. The prep gate does not read it.
 
-Boot writes a custom-format `pg_dump` before `drizzle-kit push --force` when `shared/schema.ts` changed, and skips the push if the dump fails or times out (`server/startup/bootSchema.ts`). Do not push by hand. `planCanonicalBackfill` reports keys and collisions and does not UPDATE historical rows.
+Boot still uses the live backup code from `5ffc9de`: a custom-format `pg_dump` before `drizzle-kit push --force` when the schema hash changed, and the push is skipped if that dump fails. `BOOT_BACKUP_KEEP` is 14 files. That is not the 30 Oct 2026 decision of 7 daily backups, and this change does not rewrite retention. A foreground push that does not apply now refuses to open routes (`schema_not_ready`). The fast path still opens only after the catalog probe matches `shared/schema.ts`, which includes the new column, partial unique index, and `design_pool_submissions`. Do not push by hand. `planCanonicalBackfill` is a read-only collision report. This deploy does not DELETE or UPDATE historical rows.
+
+Exact additive DDL, and nothing else:
+
+- `ALTER TABLE game_sets ADD COLUMN canonical_identity text` (nullable).
+- `CREATE UNIQUE INDEX uq_game_sets_canonical_identity ON game_sets (canonical_identity) WHERE canonical_identity IS NOT NULL`.
+- `CREATE TABLE design_pool_submissions` (set id, count, manifest hash, card ids, mask version, source witness, submitted at).
+
+Before that DDL, a read-only preflight checks the backup directory is readable, the newest dump is non-empty when one exists, free space is above the operator minimum when it can be read, and `planCanonicalBackfill` reports zero collisions. No production action is taken from this repository.
 
 ## CI
 
