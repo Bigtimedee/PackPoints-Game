@@ -45,6 +45,8 @@ curl -sS -X POST "$BASE/api/qa/sets/<id>/fill-missing" "${HDR[@]}" \
 
 `fillConfigFromTarget` copies `baseCount` and `baseCountProvenance` from the target. A data-only registry edit is what turns the cap on. A null count does not release the set.
 
+Held discovery and verified import are different. With `baseCount` null, `confirmImport` reports `importMode: held_discovery` and has no upper number cap. The safe pilot is `supplierPreview`, then a reviewed count and provenance on the target, then `confirmImport`. That run reports `importMode: verified_cap` and refuses numbers above the count. Do not treat a discovery insert as the verified import.
+
 ## Box export
 
 The server returns `400 box_exporter_required` for `POST /api/qa/baseball-expansion/:id/export` and writes no directory. On the box:
@@ -54,9 +56,19 @@ PACKPTS_BASE_URL="$BASE" COVER_QA_TOKEN="$COVER_QA_TOKEN" \
   npx tsx scripts/export-design-inbox.ts --set <id> --out /workspace/packpts-design/set-expansion-21/inbox
 ```
 
-That reads `/api/qa/sets/:id/cards`, `/source/:cardId`, and `/api/qa/cover-image/:cardId` one card at a time, with a 15MB cap. It refuses `public`, `static`, `dist`, and `masked-cards`. Default is source-only and does not write `REVIEW_READY`. `--review` writes `REVIEW_READY` only when the profile is explicit and every card has source and masked bytes. The file says `releaseApproval: false`. It is not GREEN.
+The script is the entrypoint. It deletes `REVIEW_READY` before downloading, streams each file with a 15MB cap, deletes a partial file on failure, and refuses a symlink or a `public` / `static` / `dist` / `masked-cards` path. Card ids that are not UUIDs are not used as filenames. It then calls `exportDesignSet`, which writes `profile.json`, `pool.csv` (`heldId,player,cardNo,sourceUrl,width,height`), paired `source/` and `masked/`, `covers/NOT_DAILY5.json`, `original-submitted.csv`, and `reconciliation.json`. `--review` writes `REVIEW_READY` only after that packet validates. The marker says `releaseApproval: false`. A failed rerun removes a stale marker. It is not GREEN. Run it on the box. Do not treat a file written on an agent VM as the Design copy.
 
-`POST /api/qa/baseball-expansion/:id/original-pool` stores sorted card ids and their hash for a later full-pool GREEN. Same count with different ids is `409 membership_mismatch`. The prep gate does not call it.
+`POST /api/qa/baseball-expansion/:id/original-pool` stores sorted card ids, the manifest hash, and a source witness. The insert reloads the winning row. A same-size different id list is `409 membership_mismatch`. The same ids with a different source witness are `409 witness_changed`. Ids that are not in that held set are `409 foreign_card`. The prep gate does not call it.
+
+## Schema this deploy adds
+
+This is not tables only.
+
+- Nullable column `game_sets.canonical_identity`.
+- Partial unique index `uq_game_sets_canonical_identity` where that column is not null. Existing rows stay null.
+- Table `design_pool_submissions` for a later full-pool GREEN. The prep gate does not read it.
+
+Boot writes a custom-format `pg_dump` before `drizzle-kit push --force` when `shared/schema.ts` changed, and skips the push if the dump fails or times out (`server/startup/bootSchema.ts`). Do not push by hand. `planCanonicalBackfill` reports keys and collisions and does not UPDATE historical rows.
 
 ## CI
 

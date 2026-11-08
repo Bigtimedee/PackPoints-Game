@@ -149,6 +149,8 @@ export interface FillMissingReport {
   canonicalSet: string | null;
   baseCount: number | null;
   baseCountProvenance: string | null;
+  /** held_discovery has no number cap. verified_cap refuses numbers above baseCount. */
+  importMode: "held_discovery" | "verified_cap";
   queries: FillQuery[];
   existing: { rows: number; baseNumbers: number };
   fetched: number;
@@ -398,6 +400,7 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
   const report: FillMissingReport = {
     setId, dryRun: opts.dryRun, canonicalSet, queries,
     baseCount: config.baseCount, baseCountProvenance: config.baseCountProvenance ?? null,
+    importMode: config.baseCount == null ? "held_discovery" : "verified_cap",
     existing: { rows: existingRows.length, baseNumbers: haveNumbers.size },
     fetched, distinctFetched: byId.size, setsSeen, variantsSeen, skipped, excluded,
     detailsLookups, detailsImagesFound, candidates, inserted: [], insertConflicts: 0,

@@ -165,9 +165,27 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
       if (!url || !url.startsWith("https://")) return notFound(req, res);
       const upstream = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: "follow" });
       const type = (upstream.headers.get("content-type") || "").split(";")[0].trim();
-      if (!upstream.ok || !IMAGE_TYPES.test(type)) return notFound(req, res);
-      const body = Buffer.from(await upstream.arrayBuffer());
-      if (body.length === 0 || body.length > MAX_SOURCE_BYTES) return notFound(req, res);
+      if (!upstream.ok || !IMAGE_TYPES.test(type) || !upstream.body) return notFound(req, res);
+      const chunks: Buffer[] = [];
+      let seen = 0;
+      const reader = upstream.body.getReader();
+      try {
+        while (true) {
+          const step = await reader.read();
+          if (step.done) break;
+          seen += step.value.byteLength;
+          if (seen > MAX_SOURCE_BYTES) {
+            await reader.cancel();
+            return notFound(req, res);
+          }
+          chunks.push(Buffer.from(step.value));
+        }
+      } catch {
+        await reader.cancel().catch(() => undefined);
+        return notFound(req, res);
+      }
+      if (seen === 0) return notFound(req, res);
+      const body = Buffer.concat(chunks);
       headers(req, res);
       res.status(200);
       res.setHeader("Content-Type", type);

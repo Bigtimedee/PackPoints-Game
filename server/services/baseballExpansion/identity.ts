@@ -68,6 +68,35 @@ export function canonicalSetKey(input: { sport: string; year: number; brand: str
   return `baseball|${input.year}|${product.brand}|${product.product}`;
 }
 
+/**
+ * Dry-run only. Reports the key each integrated row would receive and any
+ * collisions. This function does not write.
+ */
+export function planCanonicalBackfill(rows: readonly IdentityRow[]): {
+  assignments: { id: string; key: string }[];
+  collisions: { key: string; ids: string[] }[];
+  skippedUserCreated: number;
+  writes: 0;
+} {
+  const groups = new Map<string, string[]>();
+  let skippedUserCreated = 0;
+  for (const row of rows) {
+    if (row.isUserCreated) { skippedUserCreated += 1; continue; }
+    const key = canonicalSetKey(row);
+    if (!key) continue;
+    const list = groups.get(key) ?? [];
+    list.push(row.id);
+    groups.set(key, list);
+  }
+  const assignments: { id: string; key: string }[] = [];
+  const collisions: { key: string; ids: string[] }[] = [];
+  for (const [key, ids] of groups) {
+    if (ids.length > 1) collisions.push({ key, ids });
+    else assignments.push({ id: ids[0]!, key });
+  }
+  return { assignments, collisions, skippedUserCreated, writes: 0 };
+}
+
 export function collidingIdentities(
   target: { sport: string; year: number; brand: string; setName: string },
   rows: readonly IdentityRow[],

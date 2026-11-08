@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { TOPPS_1988_PROFILE_ID, TOPPS_1988_REGIONS, TOPPS_1988_SET_ID } from "../masking/topps1988Geometry";
 import { getMaskProfile, profileIsRegistered } from "../masking/maskProfiles";
 import { replaceLifecycleRegistry } from "../services/setLifecycleRegistry";
-import { canonicalMembership, canonicalSetKey, collidingIdentities, membershipMatches } from "../services/baseballExpansion/identity";
+import { canonicalMembership, canonicalSetKey, collidingIdentities, membershipMatches, planCanonicalBackfill } from "../services/baseballExpansion/identity";
 import { exportDesignSet } from "../services/baseballExpansion/exportSet";
 import {
   ENGINEERING_SET_MINIMUM,
@@ -175,6 +175,19 @@ describe("canonical identity", () => {
     expect(collidingIdentities(topps.identity, [row({ year: 1990, brand: "Topps", setName: "1990 Topps Tiffany" })], topps.id))
       .toEqual([]);
     expect(collidingIdentities(fleer.identity, [{ ...row({}), id: fleer.id }], fleer.id)).toEqual([]);
+  });
+
+  it("plans a backfill without writing and reports collisions", () => {
+    const plan = planCanonicalBackfill([
+      { id: "a", sport: "Baseball", year: 1986, brand: "Fleer", setName: "1986 Fleer", isActive: false, isUserCreated: false, cards: 1 },
+      { id: "b", sport: "baseball", year: 1986, brand: "Fleer", setName: "1986 Fleer Baseball", isActive: true, isUserCreated: false, cards: 2 },
+      { id: "c", sport: "baseball", year: 1986, brand: "Topps", setName: "1986 Topps Traded", isActive: true, isUserCreated: false, cards: 3 },
+      { id: "d", sport: "baseball", year: 1986, brand: "Topps", setName: "1986 Topps", isActive: true, isUserCreated: true, cards: 4 },
+    ]);
+    expect(plan.writes).toBe(0);
+    expect(plan.skippedUserCreated).toBe(1);
+    expect(plan.collisions).toHaveLength(1);
+    expect(plan.assignments.map((row) => row.id)).toEqual(["c"]);
   });
 
   it("rejects a same-size substitution of the original id list", () => {

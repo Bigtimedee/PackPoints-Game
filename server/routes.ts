@@ -121,6 +121,7 @@ import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerBaseballExpansionQaRoutes } from "./routes/baseballExpansionQa";
 import { insertIntegratedGameSet } from "./services/baseballExpansion/createIntegratedSet";
+import { respondIfHeldGameStart } from "./routes/gameStartHeld";
 import { registerSignupQaRoutes } from "./routes/signupQa";
 import { registerGrowthStage1Routes } from "./routes/growthStage1Qa";
 import { registerAuthAccountStatusQaRoute } from "./routes/authAccountStatusQa";
@@ -195,6 +196,10 @@ const requireActiveUser = async (req: any, res: Response, next: NextFunction) =>
   }
   
   next();
+};
+
+export let gameStartHandler: (req: any, res: any) => void | Promise<void> = (_req, res) => {
+  res.status(503).json({ error: "Not ready" });
 };
 
 export async function registerRoutes(
@@ -676,19 +681,15 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/start", gameStartLimiter, collectGeo, async (req: any, res) => {
+  gameStartHandler = async (req: any, res) => {
     try {
+      if (await respondIfHeldGameStart(req, res)) return;
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
       const { mode, totalQuestions, setId } = parsed.data;
-      await ensureHeldSets();
-
-      if (setId && isHeldSet(setId)) {
-        return res.status(404).json({ error: "Set not found" });
-      }
 
       if (setId && await isPanicEnabled(`disable_set_${setId}`)) {
         return res.status(503).json({ error: "This card set is temporarily disabled." });
@@ -877,7 +878,8 @@ export async function registerRoutes(
       console.error("Error starting game:", error);
       res.status(500).json({ error: "Failed to start game" });
     }
-  });
+  };
+  app.post("/api/game/start", gameStartLimiter, collectGeo, (req, res) => { void gameStartHandler(req, res); });
 
   app.get("/api/game/session/:id", createGameSessionReadHandler({
     getGameSession: (id) => storage.getGameSession(id),

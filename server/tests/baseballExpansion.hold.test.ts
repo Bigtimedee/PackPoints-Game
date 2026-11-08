@@ -15,9 +15,20 @@ import { missingExpansionTargets } from "../services/baseballExpansion/registry"
 import { insertIntegratedGameSet } from "../services/baseballExpansion/createIntegratedSet";
 import { resolveDaily5SetForDate } from "../services/daily5SetPick";
 import { publicMaskDenyReason, resetPublicMaskSetCacheForTests } from "../services/publicMaskGate";
+import { readFileSync } from "fs";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
+import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
+import { gameSessionsTable } from "@shared/schema";
 import { handlePublicSetDetail } from "../services/publicSets";
 import { handlePublicSetCover } from "../services/setCovers";
 import { registerDesignApprovalQaRoutes } from "../routes/designApprovalQa";
+import { respondIfHeldGameStart } from "../routes/gameStartHeld";
+import { handleMaskedToken } from "../services/playImageHttp";
+import { sendMaskedCard } from "../services/playImageSend";
+import { resolveMaskCard } from "../services/playImageAccess";
+import { maskedPlayPath } from "../services/playImageToken";
+import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 
 const targets = missingExpansionTargets();
 const ids = targets.map((target) => target.id);
@@ -39,8 +50,9 @@ beforeAll(async () => {
       cardhedgeCategory: "Baseball",
       isActive: true,
     });
+    const cardId = `00000000-0000-4000-8000-${target.id.slice(-12)}`;
     await db.insert(playableCards).values({
-      id: `00000000-0000-4000-8000-${target.id.slice(-12)}`,
+      id: cardId,
       gameSetId: target.id,
       cardhedgeCardId: `held-prep:${target.id}`,
       player: "Evidence Player",
@@ -51,6 +63,19 @@ beforeAll(async () => {
       category: "Baseball",
       isPlayable: true,
     }).onConflictDoNothing();
+    await db.insert(gameSessionsTable).values({
+      id: `session-${target.id}`,
+      mode: "solo",
+      questions: [{ card: { id: cardId, playableCardId: cardId } }],
+      totalQuestions: 1,
+      startedAt: new Date().toISOString(),
+    }).onConflictDoNothing();
+    await mkdir(MASKED_CARDS_DIR, { recursive: true });
+    const buf = Buffer.alloc(24);
+    buf[0] = 0xff; buf[1] = 0xd8; buf[2] = 0xff; buf[3] = 0xc0;
+    buf.writeUInt16BE(11, 4); buf[6] = 8; buf.writeUInt16BE(800, 7); buf.writeUInt16BE(600, 9);
+    await writeFile(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.jpg`), buf);
+    await writeFile(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.ok`), "ok\n");
   }
   await refreshHeldSets();
   resetPublicMaskSetCacheForTests();
@@ -58,6 +83,16 @@ beforeAll(async () => {
   app.use(express.json());
   app.get("/api/sets/:id", (req, res) => { void handlePublicSetDetail(req, res); });
   app.get("/api/sets/:setId/covers/:slot", (req, res) => { void handlePublicSetCover(req, res); });
+  app.post("/api/game/start", (req, res) => { void respondIfHeldGameStart(req, res); });
+  app.get("/api/play/m/:scope/:sessionId/:index/:token", (req, res) => {
+    void handleMaskedToken(req, res, {
+      authorizeCardId: async () => "denied",
+      resolveReveal: async () => ({ ok: false, reason: "bad" }),
+      resolveMask: resolveMaskCard,
+      sendUnmasked: async (response) => { response.status(500).end(); },
+      sendMasked: sendMaskedCard,
+    });
+  });
   registerDesignApprovalQaRoutes(app);
   server = createServer(app);
   await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
@@ -65,6 +100,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(gameSessionsTable).where(inArray(gameSessionsTable.id, targets.map((target) => `session-${target.id}`)));
   await db.delete(playableCards).where(inArray(playableCards.gameSetId, ids));
   await db.delete(gameSets).where(inArray(gameSets.id, ids));
   await refreshHeldSets();
@@ -73,6 +109,12 @@ afterAll(async () => {
 });
 
 describe("16 missing sets stay held and unreachable", () => {
+  it("wires the production game-start and play-mask routes", () => {
+    const source = readFileSync(path.join(__dirname, "../routes.ts"), "utf8");
+    expect(source).toContain("if (await respondIfHeldGameStart(req, res)) return;");
+    expect(source).toContain("await handleMaskedToken(req, res, playImageDeps)");
+  });
+
   it("has no clearance, no approved profile, and no fallback mask", () => {
     expect(targets).toHaveLength(16);
     for (const target of targets) {
@@ -98,6 +140,18 @@ describe("16 missing sets stay held and unreachable", () => {
       const cover = await fetch(`${base}/api/sets/${target.id}/covers/0`);
       expect(cover.status).toBe(404);
       expect(await publicMaskDenyReason(cardId)).toBe("held");
+      const start = await fetch(`${base}/api/game/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "solo", totalQuestions: 5, setId: target.id }),
+      });
+      expect(start.status).toBe(404);
+      expect(await start.text()).toContain("Set not found");
+      const play = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: `session-${target.id}`, index: 0, cardId })}`);
+      expect(play.status).toBe(404);
+      const bytes = Buffer.from(await play.arrayBuffer());
+      expect(bytes[0]).not.toBe(0xff);
+      expect(play.headers.get("content-type") || "").toContain("json");
       const green = await fetch(`${base}/api/qa/sets/${target.id}/design-approval`, {
         method: "POST",
         headers: { "X-QA-Token": TOKEN, "Content-Type": "application/json" },

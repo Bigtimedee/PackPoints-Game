@@ -42,6 +42,8 @@ export interface ExportCardInput {
   height: number;
   sourceJpeg: Buffer | null;
   maskedJpeg: Buffer | null;
+  sourcePath?: string | null;
+  maskedPath?: string | null;
   blockedReason?: string | null;
   isPlayable?: boolean;
   nameCheckPassed: boolean;
@@ -76,6 +78,42 @@ function poolLine(card: { heldId: string; player: string; cardNo: string; source
 }
 
 const HEADER = "heldId,player,cardNo,sourceUrl,width,height";
+const CARD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** UUID only. Rejects slashes, dot segments, and any other path text. */
+export function cardJpegName(cardId: string): string | null {
+  if (!CARD_ID.test(cardId)) return null;
+  return `${cardId.toLowerCase()}.jpg`;
+}
+
+export function clearReviewMarkers(directory: string): void {
+  for (const name of [READY, "REVIEW_READY"]) {
+    const file = path.join(directory, name);
+    if (existsSync(file)) rmSync(file, { force: true });
+  }
+}
+
+export function reviewPacketMissing(directory: string, ids: readonly string[]): string[] {
+  const missing: string[] = [];
+  for (const name of ["profile.json", POOL, MANIFEST, "reconciliation.json", path.join("covers", "NOT_DAILY5.json")]) {
+    if (!existsSync(path.join(directory, name))) missing.push(name);
+  }
+  const poolPath = path.join(directory, POOL);
+  const manifestPath = path.join(directory, MANIFEST);
+  if (existsSync(poolPath) && !readFileSync(poolPath, "utf8").startsWith(HEADER)) missing.push("pool.csv header");
+  if (existsSync(poolPath) && existsSync(manifestPath)) {
+    const poolIds = parsePool(readFileSync(poolPath, "utf8")).map((row) => row.heldId).sort();
+    const manifestIds = parsePool(readFileSync(manifestPath, "utf8")).map((row) => row.heldId).sort();
+    if (poolIds.join("\n") !== manifestIds.join("\n")) missing.push("pool/manifest membership");
+  }
+  for (const id of ids) {
+    const file = cardJpegName(id);
+    if (!file) { missing.push(`bad-id:${id}`); continue; }
+    if (!existsSync(path.join(directory, "source", file))) missing.push(`source/${file}`);
+    if (!existsSync(path.join(directory, "masked", file))) missing.push(`masked/${file}`);
+  }
+  return missing;
+}
 
 function parsePool(text: string): { heldId: string }[] {
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -108,8 +146,7 @@ export async function exportDesignSet(input: {
   mkdirSync(path.join(directory, "masked"), { recursive: true });
   mkdirSync(path.join(directory, "masked-300"), { recursive: true });
   mkdirSync(path.join(directory, "covers"), { recursive: true });
-  if (existsSync(path.join(directory, READY))) rmSync(path.join(directory, READY));
-  if (existsSync(path.join(directory, "REVIEW_READY"))) rmSync(path.join(directory, "REVIEW_READY"));
+  clearReviewMarkers(directory);
 
   const manifestPath = path.join(directory, MANIFEST);
   let originalIds: string[];
@@ -131,23 +168,34 @@ export async function exportDesignSet(input: {
       measured.set(id, { width: 0, height: 0, reasons: ["dropped_from_resubmit"] });
       continue;
     }
+    const fileName = cardJpegName(id);
     let width = card.width;
     let height = card.height;
-    if (card.sourceJpeg && card.sourceJpeg.length > 0) {
-      const size = await jpegSize(card.sourceJpeg, width, height);
+    const sourceFile = fileName ? path.join(directory, "source", fileName) : "";
+    if (fileName && card.sourceJpeg && card.sourceJpeg.length > 0) {
+      writeFileSync(sourceFile, card.sourceJpeg);
+    } else if (fileName && card.sourcePath && existsSync(card.sourcePath) && path.resolve(card.sourcePath) !== path.resolve(sourceFile)) {
+      writeFileSync(sourceFile, readFileSync(card.sourcePath));
+    }
+    if (fileName && existsSync(sourceFile)) {
+      const size = await jpegSize(readFileSync(sourceFile), width, height);
       width = size.width;
       height = size.height;
-      writeFileSync(path.join(directory, "source", `${id}.jpg`), card.sourceJpeg);
       sourceFiles += 1;
     }
     let hasMasked = false;
-    if (card.maskedJpeg && card.maskedJpeg.length > 0) {
-      const size = await jpegSize(card.maskedJpeg, width, height);
+    const maskedFile = fileName ? path.join(directory, "masked", fileName) : "";
+    if (fileName && card.maskedJpeg && card.maskedJpeg.length > 0) {
+      writeFileSync(maskedFile, card.maskedJpeg);
+    } else if (fileName && card.maskedPath && existsSync(card.maskedPath) && path.resolve(card.maskedPath) !== path.resolve(maskedFile)) {
+      writeFileSync(maskedFile, readFileSync(card.maskedPath));
+    }
+    if (fileName && existsSync(maskedFile)) {
+      const size = await jpegSize(readFileSync(maskedFile), width, height);
       if (!(width > 0)) width = size.width;
       if (!(height > 0)) height = size.height;
-      writeFileSync(path.join(directory, "masked", `${id}.jpg`), card.maskedJpeg);
-      const preview = await sharp(card.maskedJpeg).resize({ width: 300, withoutEnlargement: false }).jpeg().toBuffer();
-      writeFileSync(path.join(directory, "masked-300", `${id}.jpg`), preview);
+      const preview = await sharp(maskedFile).resize({ width: 300, withoutEnlargement: false }).jpeg().toBuffer();
+      writeFileSync(path.join(directory, "masked-300", fileName), preview);
       maskedFiles += 1;
       hasMasked = true;
     }
@@ -161,7 +209,7 @@ export async function exportDesignSet(input: {
         height,
         blockedReason: card.blockedReason,
         isPlayable: card.isPlayable,
-        hasSource: Boolean(card.sourceJpeg && card.sourceJpeg.length > 0),
+        hasSource: Boolean(fileName && existsSync(sourceFile)),
         hasMasked,
         nameCheckPassed: card.nameCheckPassed,
         maskRefused: card.maskRefused,
@@ -189,11 +237,11 @@ export async function exportDesignSet(input: {
     ? input.profile
     : { explicit: false, profileId: null, side: null, regions: null };
   const filesComplete = originalIds.every((id) => {
-    const card = byId.get(id);
-    return Boolean(card?.sourceJpeg?.length) && Boolean(card?.maskedJpeg?.length)
-      && existsSync(path.join(directory, "source", `${id}.jpg`))
-      && existsSync(path.join(directory, "masked", `${id}.jpg`))
-      && existsSync(path.join(directory, "masked-300", `${id}.jpg`));
+    const name = cardJpegName(id);
+    if (!name) return false;
+    return existsSync(path.join(directory, "source", name))
+      && existsSync(path.join(directory, "masked", name))
+      && existsSync(path.join(directory, "masked-300", name));
   });
   const paired = filesComplete && profile.explicit && health.originalCount === originalIds.length && originalIds.length > 0;
   const reviewReady = input.mode !== "source" && paired;
@@ -215,8 +263,14 @@ export async function exportDesignSet(input: {
     ? poolCards.filter((card) => card.proposedCover && (measured.get(card.heldId)?.reasons.length ?? 1) === 0).map((card) => card.heldId)
     : [];
   for (const id of coverIds) {
+    const name = cardJpegName(id);
     const card = byId.get(id);
-    if (card?.maskedJpeg) writeFileSync(path.join(directory, "covers", `${id}.jpg`), card.maskedJpeg);
+    if (!name) continue;
+    if (card?.maskedJpeg) writeFileSync(path.join(directory, "covers", name), card.maskedJpeg);
+    else {
+      const maskedFile = path.join(directory, "masked", name);
+      if (existsSync(maskedFile)) writeFileSync(path.join(directory, "covers", name), readFileSync(maskedFile));
+    }
   }
   writeFileSync(path.join(directory, "covers", "NOT_DAILY5.json"), JSON.stringify({
     dealDaily5: false,
@@ -243,7 +297,8 @@ export async function exportDesignSet(input: {
     verdict: health.verdict,
     cherryPickAllowed: false,
     releaseAuthorized: false,
-    reviewReady,
+    reviewReady: false,
+    packetMissing: [] as string[],
     profileExplicit: profile.explicit,
     filesComplete,
     sourceFiles,
@@ -254,9 +309,13 @@ export async function exportDesignSet(input: {
     dealDaily5: false,
     pinnedCovers: false,
   };
+  const packetMissing = reviewReady ? reviewPacketMissing(directory, originalIds).filter((name) => name !== "reconciliation.json") : ["source-only"];
+  const packetReady = reviewReady && packetMissing.length === 0;
+  reconciliation.reviewReady = packetReady;
+  reconciliation.packetMissing = packetMissing;
   writeFileSync(path.join(directory, "reconciliation.json"), JSON.stringify(reconciliation, null, 2) + "\n");
-  if (existsSync(path.join(directory, READY))) rmSync(path.join(directory, READY));
-  if (reviewReady) {
+  clearReviewMarkers(directory);
+  if (packetReady) {
     writeFileSync(path.join(directory, "REVIEW_READY"), JSON.stringify({
       setId: input.target.id,
       slug: input.target.slug,
@@ -273,7 +332,7 @@ export async function exportDesignSet(input: {
     originalCount: health.originalCount,
     originalCardIds: originalIds,
     health,
-    ready: reviewReady,
+    ready: packetReady,
     profileExplicit: profile.explicit,
     reconciliation,
   };
