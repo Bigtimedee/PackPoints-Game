@@ -81,6 +81,7 @@ import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
 import { requestPasswordReset } from "./auth/passwordResetRequest";
 import { completePasswordReset } from "./auth/passwordResetApply";
+import { endBrowserSession } from "./auth/endBrowserSession";
 import { validateImageUrl, recordImageLoadFailure, shouldAutoFlagCard } from "./services/imageValidator";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
@@ -2293,6 +2294,12 @@ export async function registerRoutes(
           await db.delete(sessions).where(sql`sess->>'localUserId' = ${userId}`);
         },
       });
+      // The row delete leaves connect.sid in the browser. End this session
+      // before the response so it cannot be saved back, and clear the cookie.
+      // Other devices lose their rows above. The anon guest cookie is not cleared.
+      if (result.status === 200) {
+        await endBrowserSession(req, res);
+      }
       res.status(result.status).json(result.body);
     } catch (error) {
       console.error("Error resetting password:", error);

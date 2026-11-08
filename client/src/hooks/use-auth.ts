@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { User } from "@shared/schema";
+import { bindAuthResume } from "@/lib/adminSessionRecovery";
 
 async function fetchUser(): Promise<User | null> {
   const response = await fetch("/api/auth/user", {
@@ -41,6 +43,13 @@ export function useAuth() {
       queryClient.setQueryData(["/api/auth/user"], null);
     },
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    return bindAuthResume(window, () => {
+      void refetch();
+    });
+  }, [refetch]);
 
   return {
     user,

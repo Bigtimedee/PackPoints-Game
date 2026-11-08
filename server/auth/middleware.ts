@@ -1,6 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import passport from "passport";
 import { getSession } from "./session";
+import { sessionAuthenticatedUserId } from "./sessionIdentity";
 
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
@@ -12,13 +13,6 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
-  const session = req.session as any;
-  if (session?.localUserId) {
-    return next();
-  }
-  const user = req.user as any;
-  if (req.isAuthenticated?.() && user?.claims?.sub) {
-    return next();
-  }
+  if (sessionAuthenticatedUserId(req)) return next();
   return res.status(401).json({ message: "Unauthorized" });
 };
