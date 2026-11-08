@@ -16,6 +16,7 @@ import { Header } from "@/components/header";
 import "@/components/header-signed-in";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminLogin from "@/pages/admin/login";
+import ResetPassword from "@/pages/reset-password";
 import {
   AUTH_USER_QUERY_KEY,
   authUserQueryFn,
@@ -34,6 +35,36 @@ const FIXTURE_ADMIN = {
   username: "fixture_admin",
   points: 111,
   profileImageUrl: null,
+  generation: 1,
+};
+
+const FIXTURE_PLAYER = {
+  id: "fixture-player",
+  isAdmin: false,
+  email: "fixture-player@example.test",
+  firstName: "Other",
+  username: "fixture_player",
+  points: 40,
+  profileImageUrl: null,
+};
+
+const DASHBOARD = {
+  overview: {
+    totalUsers: 4,
+    registeredUsersNonStaff: 4,
+    staffUsers: 1,
+    botUsers: 0,
+    allUserRows: 5,
+    totalPoints: 151,
+    totalGames: 9,
+    avgAccuracy: 40,
+    activeSubscriptions: 1,
+    newSignups: 2,
+    newSignupsNonStaff: 2,
+    newSignupsAllRows: 2,
+  },
+  topPlayers: [],
+  mostActive: [],
 };
 
 const WALLET = {
@@ -74,23 +105,28 @@ describe("auth read epoch", () => {
   it("a late admin body started before the clear does not replace null, and a later read can", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     let release!: (response: Response) => void;
-    vi.stubGlobal("fetch", () => new Promise<Response>((resolve) => {
-      release = resolve;
-    }));
+    let calls = 0;
+    vi.stubGlobal("fetch", () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      }
+      return Promise.resolve(jsonResponse(null));
+    });
     const signal = new AbortController().signal;
     const stale = authUserQueryFn(client)({ signal } as never);
-    await afterPasswordResetSuccess(client);
+    const settled = afterPasswordResetSuccess(client);
     expect(currentAuthReadEpoch()).toBe(1);
     release(jsonResponse(FIXTURE_ADMIN));
     expect(await stale).toBeNull();
+    expect(await settled).toBeNull();
     expect(client.getQueryData(AUTH_USER_QUERY_KEY)).toBeNull();
 
-    vi.stubGlobal("fetch", async () => jsonResponse(FIXTURE_ADMIN));
+    vi.stubGlobal("fetch", async () => jsonResponse({ ...FIXTURE_ADMIN, generation: 2 }));
     const fresh = await authUserQueryFn(client)({ signal: new AbortController().signal } as never);
-    expect(fresh).toMatchObject({ id: "fixture-admin", isAdmin: true });
-    expect(client.getQueryData(AUTH_USER_QUERY_KEY)).toBeNull();
-    client.setQueryData(AUTH_USER_QUERY_KEY, fresh);
-    expect(client.getQueryData<{ id: string }>(AUTH_USER_QUERY_KEY)?.id).toBe("fixture-admin");
+    expect(fresh).toMatchObject({ id: "fixture-admin", isAdmin: true, generation: 2 });
     expect(bumpAuthReadEpoch()).toBe(2);
   });
 });
@@ -117,6 +153,7 @@ describe("mounted admin shell", () => {
       const url = String(input);
       if (url.endsWith("/wallet")) return Promise.resolve(jsonResponse(WALLET));
       if (url.includes("/api/progress/daily")) return Promise.resolve(jsonResponse(DAILY));
+      if (url.includes("/api/streak")) return Promise.resolve(jsonResponse({ currentDays: 0, longestDays: 0, lastActiveLocalDate: null, status: "ok", freezesAvailable: 0, todayClaimed: false, nextReward: 0, nextMilestone: null, timeUntilReset: 0, recentDays: [] }));
       return new Promise<Response>((resolve, reject) => {
         const entry: Pending = { url, resolve };
         pending.push(entry);
@@ -227,5 +264,161 @@ describe("mounted admin shell", () => {
 
     const followed = pending.filter((entry) => entry.url.includes("/api/admin/dashboard"));
     expect(followed).toHaveLength(0);
+  });
+
+  function setInput(selector: string, value: string) {
+    const input = document.querySelector(selector) as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  async function mount(path: string) {
+    const location = memoryLocation({ path, record: true });
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          queryFn: getQueryFn({ on401: "throw" }),
+          retry: false,
+          staleTime: Infinity,
+          refetchOnWindowFocus: false,
+        },
+      },
+    });
+    const routes = [
+      createElement(Route, { key: "dash", path: "/admin/dashboard", component: AdminDashboard }),
+      createElement(Route, { key: "login", path: "/admin", component: AdminLogin }),
+      createElement(Route, { key: "reset", path: "/reset-password", component: ResetPassword }),
+    ];
+    await act(async () => {
+      root = createRoot(document.getElementById("root")!);
+      root.render(createElement(QueryClientProvider, { client },
+        createElement(ThemeProvider, { defaultTheme: "light" },
+          createElement(TooltipProvider, { delayDuration: 0 },
+            createElement(Router, { hook: location.hook },
+              createElement(Header),
+              createElement(Switch, null, ...routes),
+            ),
+          ),
+        ),
+      ));
+    });
+    await settle();
+    return { location, client };
+  }
+
+  it("expiry then a fresh login opens the dashboard with the new auth read", async () => {
+    const { location, client } = await mount("/admin/dashboard");
+    take("/api/auth/user").resolve(jsonResponse(FIXTURE_ADMIN));
+    for (let i = 0; i < 30 && !document.querySelector("[data-testid='button-user-menu']"); i++) await settle();
+    expect(document.querySelector("[data-testid='button-user-menu']")).toBeTruthy();
+    const epochBeforeExpiry = currentAuthReadEpoch();
+
+    take("/api/admin/dashboard").resolve(jsonResponse({ message: "Unauthorized" }, 401));
+    await settle();
+    await settle();
+    const loginRead = pending.find((entry) => entry.url.includes("/api/auth/user"));
+    loginRead?.resolve(jsonResponse(null));
+    for (let i = 0; i < 20 && !document.querySelector("[data-testid='input-admin-username']"); i++) await settle();
+    expect(client.getQueryData(AUTH_USER_QUERY_KEY)).toBeNull();
+    expect(currentAuthReadEpoch()).toBeGreaterThan(epochBeforeExpiry);
+    const epochAtLogin = currentAuthReadEpoch();
+
+    setInput("[data-testid='input-admin-username']", "fixture-admin@example.test");
+    setInput("[data-testid='input-admin-password']", "fixture-pass-1");
+    await act(async () => {
+      (document.querySelector("[data-testid='button-admin-login-submit']") as HTMLButtonElement).click();
+    });
+    await settle();
+    take("/api/auth/local-login").resolve(jsonResponse({ success: true, user: { id: "fixture-admin", username: "fixture_admin", points: 111, gamesPlayed: 0 } }));
+    await settle();
+    for (let i = 0; i < 5 && !pending.some((entry) => entry.url.includes("/api/admin/dashboard")); i++) {
+      const auth = pending.find((entry) => entry.url.includes("/api/auth/user"));
+      if (!auth) { await settle(); continue; }
+      auth.resolve(jsonResponse({ ...FIXTURE_ADMIN, generation: 2 }));
+      pending.splice(pending.indexOf(auth), 1);
+      await settle();
+    }
+    take("/api/admin/dashboard").resolve(jsonResponse(DASHBOARD));
+    for (let i = 0; i < 30 && !document.querySelector("[data-testid='text-admin-dashboard-title']"); i++) await settle();
+
+    expect(location.history.at(-1)).toBe("/admin/dashboard");
+    expect(document.querySelector("[data-testid='button-user-menu']")).toBeTruthy();
+    expect(document.body.textContent).toContain("151");
+    expect(client.getQueryData<{ generation: number; id: string }>(AUTH_USER_QUERY_KEY)).toMatchObject({
+      id: "fixture-admin",
+      generation: 2,
+    });
+    expect(currentAuthReadEpoch()).toBe(epochAtLogin);
+  });
+
+  async function submitReset(account: unknown) {
+    window.history.pushState(null, "", "/reset-password?token=fixture-token");
+    const mounted = await mount("/reset-password");
+    take("/api/auth/user").resolve(jsonResponse(account));
+    take("/api/auth/validate-reset-token").resolve(jsonResponse({ valid: true }));
+    for (let i = 0; i < 20 && !document.querySelector("[data-testid='input-new-password']"); i++) await settle();
+    setInput("[data-testid='input-new-password']", "fixture-pass-1");
+    setInput("[data-testid='input-confirm-password']", "fixture-pass-1");
+    await act(async () => {
+      (document.querySelector("[data-testid='button-reset-submit']") as HTMLButtonElement).click();
+    });
+    await settle();
+    await act(async () => {
+      take("/api/auth/reset-password").resolve(jsonResponse({ success: true, message: "Password has been reset successfully" }));
+    });
+    await settle();
+    return mounted;
+  }
+
+  it("a same-account reset signs out, and the next login is not stuck null", async () => {
+    const { location, client } = await submitReset(FIXTURE_ADMIN);
+    for (let i = 0; i < 10 && pending.some((entry) => entry.url.includes("/api/auth/user")); i++) {
+      take("/api/auth/user").resolve(jsonResponse(null));
+      await settle();
+    }
+    for (let i = 0; i < 20 && !document.body.textContent?.includes("Password Reset"); i++) await settle();
+    expect(client.getQueryData(AUTH_USER_QUERY_KEY)).toBeNull();
+    expect(document.querySelector("[data-testid='button-user-menu']")).toBeNull();
+    expect(document.body.textContent).toContain("Password Reset");
+
+    await act(async () => {
+      location.navigate("/admin");
+    });
+    await settle();
+    const signedOutRead = pending.find((entry) => entry.url.includes("/api/auth/user"));
+    signedOutRead?.resolve(jsonResponse(null));
+    for (let i = 0; i < 20 && !document.querySelector("[data-testid='input-admin-username']"); i++) await settle();
+    setInput("[data-testid='input-admin-username']", "fixture-admin@example.test");
+    setInput("[data-testid='input-admin-password']", "fixture-pass-1");
+    await act(async () => {
+      (document.querySelector("[data-testid='button-admin-login-submit']") as HTMLButtonElement).click();
+    });
+    await settle();
+    take("/api/auth/local-login").resolve(jsonResponse({ success: true, user: { id: "fixture-admin", username: "fixture_admin", points: 111, gamesPlayed: 0 } }));
+    await settle();
+    for (let i = 0; i < 5 && !pending.some((entry) => entry.url.includes("/api/admin/dashboard")); i++) {
+      const auth = pending.find((entry) => entry.url.includes("/api/auth/user"));
+      if (!auth) { await settle(); continue; }
+      auth.resolve(jsonResponse({ ...FIXTURE_ADMIN, generation: 2 }));
+      pending.splice(pending.indexOf(auth), 1);
+      await settle();
+    }
+    take("/api/admin/dashboard").resolve(jsonResponse(DASHBOARD));
+    for (let i = 0; i < 30 && !document.querySelector("[data-testid='text-admin-dashboard-title']"); i++) await settle();
+    expect(location.history.at(-1)).toBe("/admin/dashboard");
+    expect(client.getQueryData<{ generation: number }>(AUTH_USER_QUERY_KEY)?.generation).toBe(2);
+    expect(document.querySelector("[data-testid='button-user-menu']")).toBeTruthy();
+  });
+
+  it("a cross-account reset keeps the other account in the cache", async () => {
+    const { client } = await submitReset(FIXTURE_PLAYER);
+    await act(async () => {
+      take("/api/auth/user").resolve(jsonResponse(FIXTURE_PLAYER));
+    });
+    for (let i = 0; i < 30 && !document.querySelector("[data-testid='button-user-menu']"); i++) await settle();
+    expect(client.getQueryData(AUTH_USER_QUERY_KEY)).toMatchObject({ id: "fixture-player", isAdmin: false });
+    expect(document.querySelector("[data-testid='button-user-menu']")).toBeTruthy();
+    expect(document.body.textContent).toContain("Password Reset");
   });
 });

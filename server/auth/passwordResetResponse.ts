@@ -9,7 +9,8 @@ type ResetResult = Awaited<ReturnType<typeof completePasswordReset>>;
  * The browser that submitted the reset is logged out only when it is the
  * account whose password just changed. Resetting account A from a browser
  * signed in as B must leave B's session and connect.sid alone. A's other
- * sessions are removed by the localUserId sweep, not by this cookie.
+ * sessions are removed only when their JSON has localUserId. A legacy Passport
+ * session that has claims.sub and no localUserId is not bulk-revoked.
  */
 export function browserSessionIsResetUser(req: Request, resetUserId: string): boolean {
   if (resetUserId.length === 0) return false;

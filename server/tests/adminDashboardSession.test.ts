@@ -331,6 +331,10 @@ describe("reset and auth routes on current main", () => {
     expect(handler).toContain("sess->>'localUserId'");
     expect(handler).toContain("replyToPasswordReset");
     expect(handler).not.toContain("endBrowserSession");
+    const revoke = handler.slice(handler.indexOf("revokeSessions"), handler.indexOf("replyToPasswordReset"));
+    expect(revoke).not.toContain("passport");
+    expect(revoke).not.toContain("workosUserId");
+    expect(handler).toContain("legacy Passport session");
     expect(handler).not.toContain("packpts_anon");
     expect(handler).not.toContain("claimAnonForUser");
     const catchBlock = handler.slice(handler.indexOf("} catch"));

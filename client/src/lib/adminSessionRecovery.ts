@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { clearAuthSession } from "@/lib/authRead";
+import { AUTH_USER_QUERY_KEY, authUserQueryFn, clearAuthSession } from "@/lib/authRead";
+import type { User } from "@shared/schema";
 
 /**
  * Admin dashboard auth recovery.
@@ -26,9 +27,18 @@ export function adminLoginDestination(user: { isAdmin?: boolean } | null | undef
 
 export const PASSWORD_RESET_LOGIN_HREF = "/admin";
 
-/** Drop the signed-in cache after the reset response. The login navigation is a full load. */
-export function afterPasswordResetSuccess(queryClient: QueryClient): Promise<void> {
-  return clearAuthSession(queryClient);
+/**
+ * Discard auth reads that started before this reset, then read /api/auth/user
+ * again. The same account comes back null. A different account that kept its
+ * session comes back as that user, so the header is not left null.
+ */
+export async function afterPasswordResetSuccess(queryClient: QueryClient): Promise<User | null> {
+  await clearAuthSession(queryClient);
+  return (await queryClient.fetchQuery({
+    queryKey: AUTH_USER_QUERY_KEY,
+    queryFn: authUserQueryFn(queryClient),
+    staleTime: 0,
+  })) ?? null;
 }
 
 export function shouldRefetchAuthOnResume(event: {

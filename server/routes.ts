@@ -2290,6 +2290,9 @@ export async function registerRoutes(
         getPasswordResetToken: (token) => storage.getPasswordResetToken(token),
         applyPassword: (userId, password) => storage.updateUserPassword(userId, password),
         markPasswordResetTokenUsed: (tokenId) => storage.markPasswordResetTokenUsed(tokenId),
+        // Existing contract: delete only rows that stored localUserId for this
+        // account. A legacy Passport session with claims.sub and no localUserId
+        // is outside this sweep. Do not match passport, workosUserId, or every row.
         revokeSessions: async (userId) => {
           await db.delete(sessions).where(sql`sess->>'localUserId' = ${userId}`);
         },
