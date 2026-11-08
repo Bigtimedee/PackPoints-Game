@@ -32,6 +32,7 @@ import {
   type FilledPrepareResult,
   sanitizeAcceptSets,
   sanitizeQueries,
+  sanitizeRejectCardIds,
   type FillMissingReport,
 } from "../services/setFillMissing";
 
@@ -96,13 +97,14 @@ export function registerSetFillQaRoutes(app: Express): void {
     const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
     const queries = sanitizeQueries(body.queries);
     const acceptSets = sanitizeAcceptSets(body.acceptSets);
-    if ((body.queries !== undefined && !queries) || !acceptSets
+    const rejectCardIds = sanitizeRejectCardIds(body.rejectCardIds);
+    if ((body.queries !== undefined && !queries) || !acceptSets || !rejectCardIds
       || (body.dryRun !== undefined && typeof body.dryRun !== "boolean")
       || (body.details !== undefined && typeof body.details !== "boolean")
       || (body.adoptFromInactive !== undefined && typeof body.adoptFromInactive !== "boolean")
       || (body.supplierPreview !== undefined && typeof body.supplierPreview !== "boolean")
       || (body.confirmImport !== undefined && typeof body.confirmImport !== "boolean")) {
-      send(res, 400, { error: "dryRun/details must be boolean; queries 1-8 of {set,search,player}; acceptSets up to 8 strings" });
+      send(res, 400, { error: "dryRun/details must be boolean; queries 1-8 of {set,search,player}; acceptSets up to 8 strings; rejectCardIds up to 2000 ids and not URLs" });
       return;
     }
     const setId = req.params.setId;
@@ -133,7 +135,7 @@ export function registerSetFillQaRoutes(app: Express): void {
     jobs.set(job.id, job);
     running.add(setId);
     send(res, 202, { jobId: job.id, dryRun: job.dryRun, statusPath: `/api/qa/sets/${setId}/fill-missing/${job.id}` });
-    void fillMissingCards(setId, { dryRun: job.dryRun, details: body.details === true, queries: queries ?? undefined, acceptSets, adoptFromInactive: body.adoptFromInactive === true })
+    void fillMissingCards(setId, { dryRun: job.dryRun, details: body.details === true, queries: queries ?? undefined, acceptSets, adoptFromInactive: body.adoptFromInactive === true, rejectCardIds: new Set(rejectCardIds) })
       .then((report) => { job.report = report; job.state = "completed"; })
       .catch((error) => { job.state = "failed"; job.error = error instanceof Error ? error.message.slice(0, 300) : "failed"; })
       .finally(() => {

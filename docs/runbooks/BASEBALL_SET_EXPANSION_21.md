@@ -43,9 +43,35 @@ curl -sS -X POST "$BASE/api/qa/sets/<id>/fill-missing" "${HDR[@]}" \
   -d '{"dryRun":false,"confirmImport":true,"details":true}'
 ```
 
-`fillConfigFromTarget` copies `baseCount` and `baseCountProvenance` from the target. A data-only registry edit is what turns the cap on. A null count does not release the set.
+`fillConfigFromTarget` copies `baseCount` and `baseCountProvenance` from the target. A data-only registry edit is what turns the cap on. The cap does not release the set.
 
-Held discovery and verified import are different. With `baseCount` null, `confirmImport` reports `importMode: held_discovery` and has no upper number cap. The safe pilot is `supplierPreview`, then a reviewed count and provenance on the target, then `confirmImport`. That run reports `importMode: verified_cap` and refuses numbers above the count. Do not treat a discovery insert as the verified import.
+All 16 missing targets now have a published checklist length. `confirmImport` reports `importMode: verified_cap` and refuses a number above that length. The length is the flagship base checklist, including numbered subsets. It is not the count of supplier candidates and not the count of cards the game will deal. All-Stars, highlights, checklists, and unusable photos stay out under the existing classifier and variant gate. A supplier row whose variant is not Base, including a 1990 Topps Salute row for checklist numbers 2–5, is `not_base` before the classifier runs. The classifier has no Salute rule. That gate is unchanged.
+
+| Set | Id | Checklist |
+| --- | --- | --- |
+| 1990 Topps | `97456b32-7b68-56fe-971a-1c821e2b09c4` | 792 |
+| 1991 Topps | `14f17bb7-a697-5080-9ec5-381c6d7e15ce` | 792 |
+| 1986–1990 Fleer | see registry | 660 |
+| 1991 Fleer | `49e656e0-3762-5113-82b5-1480f1c77541` | 720 |
+| 1986, 1988, 1989 Donruss | see registry | 660 |
+| 1990 Donruss | `64130c7a-6b1a-533c-9575-1089f7adfdce` | 716 |
+| 1991 Donruss | `e4f4a86e-3908-5e93-af8f-fd8462c25d97` | 770 |
+| 1989–1991 Upper Deck | see registry | 800, high series included, Final Edition excluded |
+
+Provenance on each row is the BaseballCardPedia base checklist opened Nov 8, 2026. Supplier previews are complete and inserted nothing. Candidate totals, which are not these caps: 1990 Topps 305, 1991 Topps 317, Fleer 1986–1991 448, 21, 145, 267, 429, 55, Donruss 1986 and 1988–1991 142, 267, 364, 512, 413, Upper Deck 1989–1991 122, 462, 486. That is 4,755 candidates. Profiles stay unregistered, public routes stay 404, and Daily 5 stays blocked.
+
+A held insert does not validate the scan. The job report sets `sourceValidated` false. The importer does not measure width or height, does not hash the file, and does not refuse a landscape composite. Passing the checklist cap only means the printed number is in range.
+
+Known-bad scans stay in the private box inventory. Pass their supplier ids on the existing fill call as `rejectCardIds`. Do not commit those ids, file hashes, or image URLs. A preview with that field shows the reduced candidate list and still inserts nothing. The same field on `confirmImport` skips those ids with `reviewed_source_reject` and leaves the checklist number open. The other rows still land held for card review. Nothing in that call approves a card, a profile, or the set.
+
+```bash
+curl -sS -X POST "$BASE/api/qa/sets/<id>/fill-missing" "${HDR[@]}" \
+  -d '{"dryRun":false,"confirmImport":true,"details":true,"rejectCardIds":["<supplier-id>"]}'
+```
+
+`rejectCardIds` accepts up to 2,000 opaque ids and refuses a value that contains `://` or `/`. After a held import, public set, cover, game-start, and play-mask routes still 404. A short side under 600 is flagged later by the Design packet. A tall scan or a front-and-back composite is not. Those stay on the private reject list until Design accepts a replacement source. Do not stretch, crop, or deal them.
+
+Held discovery remains the path only when `baseCount` is null. These sixteen are no longer on that path.
 
 ## Box export
 
