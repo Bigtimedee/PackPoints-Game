@@ -121,6 +121,11 @@ export interface FillMissingOptions {
    * and the row has no review approval. Keeps the row id (game history intact).
    */
   adoptFromInactive?: boolean;
+  /**
+   * Card Hedge ids the caller reviewed and does not want inserted.
+   * Ids only. Not image URLs and not a source-quality approval of the rest.
+   */
+  rejectCardIds?: ReadonlySet<string>;
 }
 
 export interface ConflictOwner {
@@ -173,6 +178,8 @@ export interface FillMissingReport {
   adopted: { id: string; cardhedgeCardId: string; number: string | null; player: string | null; fromSetId: string }[];
   totalRowsAfter: number | null;
   importRunId: string | null;
+  /** Always false. Landing a row does not mean its scan was accepted. */
+  sourceValidated: false;
 }
 
 const MAX_QUERIES = 8;
@@ -261,6 +268,20 @@ export function sanitizeQueries(raw: unknown): FillQuery[] | null {
     out.push(q);
   }
   return out;
+}
+
+/** Opaque supplier ids. A URL or a path is refused so a source address is not the reject key. */
+export function sanitizeRejectCardIds(raw: unknown): string[] | null {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > 2000) return null;
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") return null;
+    const id = item.trim();
+    if (!id || id.length > 80 || /\s/.test(id) || id.includes("://") || id.includes("/")) return null;
+    out.push(id);
+  }
+  return [...new Set(out)];
 }
 
 export function sanitizeAcceptSets(raw: unknown): string[] | null {
@@ -364,6 +385,11 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
   const candidates: FillCandidate[] = [];
   for (const cand of pending) {
     const n = normalizeBaseNumber(cand.number)!;
+    if (opts.rejectCardIds?.has(cand.cardhedgeCardId)) {
+      bump(skipped, "reviewed_source_reject");
+      excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: "reviewed_source_reject" });
+      continue;
+    }
     if (claimed.has(n)) { bump(skipped, "number_already_in_set"); continue; }
     if (!cand.imageUrl && opts.details && detailsLookups < MAX_DETAILS) {
       detailsLookups++;
@@ -406,6 +432,7 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
     detailsLookups, detailsImagesFound, candidates, inserted: [], insertConflicts: 0,
     missingNumbers, insertBlocked: truncated ? "supplier_page_cap" : null,
     truncated, pagesFetched, existingFlagged, conflictOwners: [], adopted: [], totalRowsAfter: null, importRunId: null,
+    sourceValidated: false,
   };
   const owned = candidates.length === 0 ? [] : (await db.execute<{ id: string; cardhedge_card_id: string; game_set_id: string;
     set_name: string; is_active: boolean; is_user_created: boolean; approved: boolean }>(sql`

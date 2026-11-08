@@ -49,7 +49,7 @@ vi.mock("../services/cardhedge/client", async (orig) => {
 const { db } = await import("../db");
 const { gameSets, playableCards, cardReviewApprovals } = await import("@shared/schema");
 const { DONRUSS_1987_HOLD_ID } = await import("../config/heldSets");
-const { fillExclusionReason, fillMissingCards, FILL_MISSING_SETS, isSlabPhoto } = await import("../services/setFillMissing");
+const { fillExclusionReason, fillMissingCards, FILL_MISSING_SETS, isSlabPhoto, sanitizeRejectCardIds } = await import("../services/setFillMissing");
 const { expansionTargetById, fillConfigFromTarget, missingExpansionTargets } = await import("../services/baseballExpansion/registry");
 const { classifyCard } = await import("../services/cardClassifier");
 const { registerSetFillQaRoutes } = await import("../routes/setFillQa");
@@ -147,6 +147,17 @@ describe("fill-missing import (DB)", () => {
     expect(report.inserted).toEqual([]);
     const rows = await db.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.gameSetId, DONRUSS_1987_HOLD_ID));
     expect(rows.length).toBe(1);
+    expect(report.sourceValidated).toBe(false);
+  });
+
+  it("skips a reviewed supplier id and does not treat the other rows as validated scans", async () => {
+    expect(sanitizeRejectCardIds(["https://img.example/a.jpg"])).toBeNull();
+    expect(sanitizeRejectCardIds(["id/with/path"])).toBeNull();
+    const report = await fillMissingCards(DONRUSS_1987_HOLD_ID, { dryRun: true, details: false, rejectCardIds: new Set([ch("2")]) });
+    expect(report.sourceValidated).toBe(false);
+    expect(report.candidates.map((c) => c.cardhedgeCardId)).not.toContain(ch("2"));
+    expect(report.excluded).toContainEqual(expect.objectContaining({ cardhedgeCardId: ch("2"), reason: "reviewed_source_reject" }));
+    expect(report.inserted).toEqual([]);
   });
 
   it("inserts only missing base cards, never touches the existing row, never approves", async () => {

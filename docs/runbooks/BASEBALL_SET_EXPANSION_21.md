@@ -58,7 +58,18 @@ All 16 missing targets now have a published checklist length. `confirmImport` re
 | 1991 Donruss | `e4f4a86e-3908-5e93-af8f-fd8462c25d97` | 770 |
 | 1989–1991 Upper Deck | see registry | 800, high series included, Final Edition excluded |
 
-Provenance on each row is the BaseballCardPedia base checklist opened Nov 8, 2026. Supplier previews are partial. Completed candidate totals at hand, which are not these caps: 1990 Topps 305, 1986 Donruss 142, 1987 Fleer 21, 1988 Fleer 145, 1989 Upper Deck 122, 1991 Fleer 55. Ten other previews were still running at 4:02 PM CT and that is not a failure. No import has been run from this change. Profiles stay unregistered, public routes stay 404, and Daily 5 stays blocked.
+Provenance on each row is the BaseballCardPedia base checklist opened Nov 8, 2026. Supplier previews are complete and inserted nothing. Candidate totals, which are not these caps: 1990 Topps 305, 1991 Topps 317, Fleer 1986–1991 448, 21, 145, 267, 429, 55, Donruss 1986 and 1988–1991 142, 267, 364, 512, 413, Upper Deck 1989–1991 122, 462, 486. That is 4,755 candidates. Profiles stay unregistered, public routes stay 404, and Daily 5 stays blocked.
+
+A held insert does not validate the scan. The job report sets `sourceValidated` false. The importer does not measure width or height, does not hash the file, and does not refuse a landscape composite. Passing the checklist cap only means the printed number is in range.
+
+Known-bad scans stay in the private box inventory. Pass their supplier ids on the existing fill call as `rejectCardIds`. Do not commit those ids, file hashes, or image URLs. A preview with that field shows the reduced candidate list and still inserts nothing. The same field on `confirmImport` skips those ids with `reviewed_source_reject` and leaves the checklist number open. The other rows still land held for card review. Nothing in that call approves a card, a profile, or the set.
+
+```bash
+curl -sS -X POST "$BASE/api/qa/sets/<id>/fill-missing" "${HDR[@]}" \
+  -d '{"dryRun":false,"confirmImport":true,"details":true,"rejectCardIds":["<supplier-id>"]}'
+```
+
+`rejectCardIds` accepts up to 2,000 opaque ids and refuses a value that contains `://` or `/`. After a held import, public set, cover, game-start, and play-mask routes still 404. A short side under 600 is flagged later by the Design packet. A tall scan or a front-and-back composite is not. Those stay on the private reject list until Design accepts a replacement source. Do not stretch, crop, or deal them.
 
 Held discovery remains the path only when `baseCount` is null. These sixteen are no longer on that path.
 
