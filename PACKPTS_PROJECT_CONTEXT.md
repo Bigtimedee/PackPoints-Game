@@ -1077,13 +1077,20 @@ Admin (20+): `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin
 - Custom design tokens: border-radius (lg: 9px, md: 6px, sm: 3px)
 - Animations via Framer Motion (card reveals, point awards, leaderboard updates) — all < 500ms
 
+### Launch checklist fixes (2026-11-08)
+
+- `server/lib/seoPages.ts` `STATIC_META` gives app screens their own `<title>` and meta description: `/auth`, `/forgot-password`, `/reset-password`, `/profile`, `/friends`, `/lobby`, `/queue`, `/redeem`, `/redemptions`, `/invite`, `/waitlist`. They stay noindex through `NOINDEX_PREFIXES`. The `client/index.html` default `<title>` stays `PackPTS`.
+- `/favicon.ico` is served from `client/public/favicon.ico`, with 16 and 32 px PNGs beside it.
+- Alt text: admin header avatar `Profile photo`; the Make upload thumbs (`MakeIdentifySlot`, `MakeMatchResult`) `Your card photo` (the user's own photo, never a player name); `SetCover` masked stacks and cover surfaces are `aria-hidden`; the receipt footer mark stays `alt=""` and is `aria-hidden`.
+- Mobile Play Now placement is unchanged on purpose: the card's answer buttons are the CTA.
+
 ### Brand marks (two-role SoR — 2026-09-20)
 
 Design lock is **two roles**, not one mark everywhere:
 
 | Role | Mark | Ships on |
 |---|---|---|
-| **B — masked-P** | White P + gold `#F5C518` bar on `#0b0f16`. Master `client/public/packpts-mark.svg` (same path as score-card / maker-share / play-sets footers). Rasters: `favicon.png`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `icon-1024.png`. | App / PWA / favicon / apple-touch / manifest / client header |
+| **B — masked-P** | White P + gold `#F5C518` bar on `#0b0f16`. Master `client/public/packpts-mark.svg` (same path as score-card / maker-share / play-sets footers). Rasters: `favicon.png`, `favicon.ico` (48x48), `favicon-32x32.png`, `favicon-16x16.png` (all four linked in `client/index.html`, 2026-11-08), `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `icon-1024.png`. | App / PWA / favicon / apple-touch / manifest / client header |
 | **A — masked-card** | Marketing scene (card / Daily 5 tease). `og-image.png` + play-sets / social kit PNGs. | OG, social, share kits only |
 
 **Kill:** glossy 3-card shield (`packpts-logo.png`, deleted from header), three-square / orange tiles, yellow-P-on-white, PackPoints spelling on product chrome, using B as a social hero, mixing A into app thumbnails.

@@ -138,7 +138,7 @@ export function ReceiptPlaque({
 
             <div className="mt-8 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <img src="/packpts-mark.svg" alt="" className="h-7 w-7 rounded-sm" data-testid="img-receipt-mark" />
+                <img src="/packpts-mark.svg" alt="" aria-hidden="true" className="h-7 w-7 rounded-sm" data-testid="img-receipt-mark" />
                 <span className="text-sm font-semibold">PackPTS</span>
               </div>
               <p className="truncate text-right text-[11px]" style={{ color: RECEIPT_COLORS.muted }}>
