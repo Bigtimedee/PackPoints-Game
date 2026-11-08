@@ -65,6 +65,7 @@ export function MaskedCardStack({
     <div
       className="relative w-full overflow-hidden"
       style={{ height: compact ? SET_INDEX_COVER_HEIGHT : 220 }}
+      aria-hidden="true"
       data-testid="cover-masked-stack"
       data-cover-count={cards.length}
     >
@@ -112,6 +113,7 @@ export function SetCover({
         <div
           className="relative w-full overflow-hidden rounded-md"
           style={{ aspectRatio: "16 / 7", backgroundColor: SETS_POLISH.panel }}
+          aria-hidden="true"
           data-testid="cover-surface-a"
         >
           <img

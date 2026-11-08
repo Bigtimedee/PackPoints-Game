@@ -170,7 +170,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             {user && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Avatar className="h-7 w-7">
-                  <AvatarImage src={user.profileImageUrl || undefined} />
+                  <AvatarImage src={user.profileImageUrl || undefined} alt="Profile photo" />
                   <AvatarFallback className="text-xs">{getInitials()}</AvatarFallback>
                 </Avatar>
                 <span className="hidden sm:inline">{user.firstName || user.email?.split("@")[0]}</span>

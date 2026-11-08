@@ -155,7 +155,7 @@ export function MakeMatchResult({
           style={{ background: MAKE_CREAM, border: `1.5px solid ${MAKE_GOLD}` }}
         >
           {previewUrl && (
-            <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            <img src={previewUrl} alt="Your card photo" className="absolute inset-0 h-full w-full object-cover" />
           )}
           <span
             className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full"

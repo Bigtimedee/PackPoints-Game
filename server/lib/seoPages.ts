@@ -135,6 +135,18 @@ const STATIC_META: Record<string, { title: string; description: string }> = {
   "/dmca": { title: "Copyright and Takedowns | PackPTS", description: "How to send PackPTS a copyright or takedown request." },
   "/store": { title: "Store | PackPTS", description: "Add points and passes to your PackPTS account." },
   "/marketplace": { title: "Marketplace | PackPTS", description: "Browse sports cards on eBay from PackPTS." },
+  // App screens. Still noindex via NOINDEX_PREFIXES; these only give each tab its own title.
+  "/auth": { title: "Log in or sign up | PackPTS", description: "Log in or create a free PackPTS account to keep your points and streaks." },
+  "/forgot-password": { title: "Forgot password | PackPTS", description: "Reset the password for your PackPTS account." },
+  "/reset-password": { title: "Reset password | PackPTS", description: "Choose a new password for your PackPTS account." },
+  "/profile": { title: "Profile | PackPTS", description: "Your PackPTS profile, points and game history." },
+  "/friends": { title: "Friends | PackPTS", description: "Your PackPTS friends and friend requests." },
+  "/lobby": { title: "Play a friend | PackPTS", description: "Same cards. Head-to-head." },
+  "/queue": { title: "Find an opponent | PackPTS", description: "Put your card knowledge to the test." },
+  "/redeem": { title: "Redeem | PackPTS", description: "Redeem a PackPTS Founders Pass." },
+  "/redemptions": { title: "Redemptions | PackPTS", description: "Your PackPTS rebate claims and withdrawals." },
+  "/invite": { title: "Invite code | PackPTS", description: "Enter a PackPTS invite code." },
+  "/waitlist": { title: "Waitlist | PackPTS", description: "Join the PackPTS waitlist." },
 };
 const NOINDEX_PREFIXES = ["/admin", "/auth", "/profile", "/game/", "/match/", "/lobby", "/queue", "/redeem", "/redemptions",
   "/store/", "/reset-password", "/forgot-password", "/review/", "/collab/", "/invite", "/friends", "/make", "/waitlist"];

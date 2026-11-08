@@ -64,7 +64,7 @@ function SlotThumb({
       }}
     >
       {!failed && previewUrl && (
-        <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <img src={previewUrl} alt="Your card photo" className="absolute inset-0 h-full w-full object-cover" />
       )}
       {status === "ok" && (
         <span
