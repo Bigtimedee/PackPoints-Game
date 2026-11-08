@@ -108,12 +108,14 @@ describe("discovery cohort persistence", () => {
     sha = createHash("sha256").update(jpeg).digest("hex");
     await insertIntegratedGameSet({
       id: OTHER, sport: "baseball", brand: "Upper Deck", year: 1990, setName: "1990 Upper Deck Baseball",
-      isActive: false, cardhedgeSetQuery: "1990 Upper Deck Baseball", cardhedgeCategory: "Baseball",
+      isActive: true, cardhedgeSetQuery: "1990 Upper Deck Baseball", cardhedgeCategory: "Baseball",
     });
     await insertIntegratedGameSet({
       id: UD, sport: "baseball", brand: "Upper Deck", year: 1991, setName: "1991 Upper Deck Baseball",
-      isActive: false, cardhedgeSetQuery: "1991 Upper Deck Baseball", cardhedgeCategory: "Baseball",
+      isActive: true, cardhedgeSetQuery: "1991 Upper Deck Baseball", cardhedgeCategory: "Baseball",
     });
+    await db.update(gameSets).set({ isActive: true }).where(eq(gameSets.id, OTHER));
+    await db.update(gameSets).set({ isActive: true }).where(eq(gameSets.id, UD));
   });
 
   afterAll(async () => {
@@ -128,7 +130,6 @@ describe("discovery cohort persistence", () => {
     }
     await db.delete(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, OTHER));
     await db.delete(discoveryCohorts).where(eq(discoveryCohorts.setId, OTHER));
-    await db.delete(gameSets).where(eq(gameSets.id, OTHER));
   });
 
   it("keeps the original cohort across a later read, rejects a changed membership, and appends revisions", async () => {
