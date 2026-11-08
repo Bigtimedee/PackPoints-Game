@@ -84,6 +84,11 @@ describe("POST /api/qa/auth/account-status", () => {
           provider: "google" as const,
           exactEmailMatch: true,
           loginSelected: true,
+          credentialCount: 0,
+          formatValid: false,
+          algorithm: "absent",
+          credentialSource: "absent",
+          verifier: "rejected_before_compare",
         }],
       };
     }
@@ -165,11 +170,16 @@ describe("POST /api/qa/auth/account-status", () => {
       expect(body.matched).toBe(1);
       expect(body.loginSelection).toBe("selected");
       expect(Object.keys(body.accounts[0]).sort()).toEqual([
+        "algorithm",
+        "credentialCount",
+        "credentialSource",
         "exactEmailMatch",
+        "formatValid",
         "hasLocalCredential",
         "loginSelected",
         "provider",
         "username",
+        "verifier",
         "workosLinked",
       ]);
       expect(body.accounts[0]).toEqual({
@@ -179,6 +189,11 @@ describe("POST /api/qa/auth/account-status", () => {
         provider: "google",
         exactEmailMatch: true,
         loginSelected: true,
+        credentialCount: 0,
+        formatValid: false,
+        algorithm: "absent",
+        credentialSource: "absent",
+        verifier: "rejected_before_compare",
       });
       const encoded = JSON.stringify(body);
       expect(encoded).not.toContain("@");
@@ -245,11 +260,9 @@ describe("account status stays private", () => {
     expect(route).toContain('"/api/qa/auth/account-status"');
     expect(route).toContain("coverQaHeaderMatches");
     expect(route).not.toMatch(/req\.query/);
-    expect(query).not.toContain("password_hash");
-    expect(query).not.toContain("passwordHash");
+    expect(query).toContain("passwordHash");
     expect(query).toContain("emailNormalized");
     expect(query).toContain("annotateAccountStatus");
-    expect(query).not.toContain("passwordHash");
 
     const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../client");
     const files = await listSourceFiles(root);

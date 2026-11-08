@@ -2033,18 +2033,19 @@ export async function registerRoutes(
       }
       
       const { usernameOrEmail, password } = parsed.data;
-      console.log("[Login] Validating credentials for:", usernameOrEmail);
+      console.log("[Login] Validating credentials");
       
       let user;
       try {
-        user = await storage.validateLocalCredentials(usernameOrEmail, password);
+        const checked = await storage.validateLocalCredentials(usernameOrEmail, password);
+        user = checked.user;
+        if (!user) console.log(`[Login] Invalid credentials branch=${checked.branch}`);
       } catch (credError) {
         console.error("[Login] Error validating credentials:", credError);
         throw credError;
       }
       
       if (!user) {
-        console.log("[Login] Invalid credentials for:", usernameOrEmail);
         try {
           const { logAuthEvent } = await import("./services/risk/events");
           await logAuthEvent("LOGIN_FAIL", { req });
