@@ -1,3 +1,6 @@
+import type { QueryClient } from "@tanstack/react-query";
+import { clearAuthSession } from "@/lib/authRead";
+
 /**
  * Admin dashboard auth recovery.
  * A 401 is a dead session, not missing stats. A 403 is a signed-in non-admin.
@@ -24,12 +27,8 @@ export function adminLoginDestination(user: { isAdmin?: boolean } | null | undef
 export const PASSWORD_RESET_LOGIN_HREF = "/admin";
 
 /** Drop the signed-in cache after the reset response. The login navigation is a full load. */
-export function afterPasswordResetSuccess(cache: {
-  setUser: (user: null) => void;
-  dropDashboard: () => void;
-}): void {
-  cache.setUser(null);
-  cache.dropDashboard();
+export function afterPasswordResetSuccess(queryClient: QueryClient): Promise<void> {
+  return clearAuthSession(queryClient);
 }
 
 export function shouldRefetchAuthOnResume(event: {

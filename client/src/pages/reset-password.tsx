@@ -8,7 +8,6 @@ import { KeyRound, Loader2, CheckCircle, XCircle, ArrowLeft } from "lucide-react
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { afterPasswordResetSuccess, PASSWORD_RESET_LOGIN_HREF } from "@/lib/adminSessionRecovery";
-import type { User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ResetPassword() {
@@ -41,10 +40,7 @@ export default function ResetPassword() {
       return response.json();
     },
     onSuccess: () => {
-      afterPasswordResetSuccess({
-        setUser: () => queryClient.setQueryData<User | null>(["/api/auth/user"], null),
-        dropDashboard: () => queryClient.removeQueries({ queryKey: ["/api/admin/dashboard"] }),
-      });
+      void afterPasswordResetSuccess(queryClient);
       setSuccess(true);
       toast({
         title: "Password reset successful",

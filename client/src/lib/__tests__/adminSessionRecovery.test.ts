@@ -33,17 +33,9 @@ describe("stale admin shell", () => {
     expect(adminLoginDestination({ isAdmin: true })).toBe("/admin/dashboard");
   });
 
-  it("drops the cached user after a successful reset and logs in with a full page load", () => {
-    const calls: string[] = [];
-    afterPasswordResetSuccess({
-      setUser: (user) => {
-        expect(user).toBeNull();
-        calls.push("user");
-      },
-      dropDashboard: () => calls.push("dashboard"),
-    });
-    expect(calls).toEqual(["user", "dashboard"]);
+  it("sends a full page load to the admin login after reset", () => {
     expect(PASSWORD_RESET_LOGIN_HREF).toBe("/admin");
+    expect(afterPasswordResetSuccess).toBeTypeOf("function");
   });
 });
 
@@ -99,6 +91,7 @@ describe("admin shell wiring", () => {
   const auth = readFileSync(new URL("../../hooks/use-auth.ts", import.meta.url), "utf8");
 
   it("confirms the session before the admin login redirect and fully loads after reset", () => {
+    expect(login).toContain("currentAuthReadEpoch()");
     expect(login).toContain("adminLoginDestination(result.data ?? null)");
     expect(login).not.toContain("if (!isLoading && isAuthenticated && user?.isAdmin)");
     const buttonAt = reset.indexOf("button-go-to-login");

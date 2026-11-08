@@ -2,22 +2,7 @@ import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { User } from "@shared/schema";
 import { bindAuthResume } from "@/lib/adminSessionRecovery";
-
-async function fetchUser(): Promise<User | null> {
-  const response = await fetch("/api/auth/user", {
-    credentials: "include",
-  });
-
-  if (response.status === 401) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw new Error(`${response.status}: ${response.statusText}`);
-  }
-
-  return response.json();
-}
+import { AUTH_USER_QUERY_KEY, authUserQueryFn, clearAuthSession, scheduleAuthResume } from "@/lib/authRead";
 
 async function logout(): Promise<void> {
   await fetch("/api/auth/local-logout", {
@@ -31,8 +16,8 @@ async function logout(): Promise<void> {
 export function useAuth() {
   const queryClient = useQueryClient();
   const { data: user, isLoading, refetch } = useQuery<User | null>({
-    queryKey: ["/api/auth/user"],
-    queryFn: fetchUser,
+    queryKey: AUTH_USER_QUERY_KEY,
+    queryFn: authUserQueryFn(queryClient),
     retry: false,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
@@ -40,14 +25,14 @@ export function useAuth() {
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: () => {
-      queryClient.setQueryData(["/api/auth/user"], null);
+      void clearAuthSession(queryClient);
     },
   });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     return bindAuthResume(window, () => {
-      void refetch();
+      void scheduleAuthResume(() => refetch());
     });
   }, [refetch]);
 

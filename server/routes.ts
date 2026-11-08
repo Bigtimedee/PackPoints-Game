@@ -81,7 +81,7 @@ import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
 import { requestPasswordReset } from "./auth/passwordResetRequest";
 import { completePasswordReset } from "./auth/passwordResetApply";
-import { endBrowserSession } from "./auth/endBrowserSession";
+import { replyToPasswordReset } from "./auth/passwordResetResponse";
 import { validateImageUrl, recordImageLoadFailure, shouldAutoFlagCard } from "./services/imageValidator";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
@@ -2294,13 +2294,10 @@ export async function registerRoutes(
           await db.delete(sessions).where(sql`sess->>'localUserId' = ${userId}`);
         },
       });
-      // The row delete leaves connect.sid in the browser. End this session
-      // before the response so it cannot be saved back, and clear the cookie.
-      // Other devices lose their rows above. The anon guest cookie is not cleared.
-      if (result.status === 200) {
-        await endBrowserSession(req, res);
-      }
-      res.status(result.status).json(result.body);
+      // Drop connect.sid only when this browser is the account that was reset.
+      // A different signed-in account keeps its session. The anon guest cookie
+      // is not cleared. Other devices of the reset account lose their rows above.
+      await replyToPasswordReset(req, res, result);
     } catch (error) {
       console.error("Error resetting password:", error);
       res.status(500).json({ error: "Failed to reset password" });

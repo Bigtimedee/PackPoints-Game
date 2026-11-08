@@ -183,6 +183,8 @@ describe("completePasswordReset", () => {
     });
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ success: true, message: "Password has been reset successfully" });
+    expect(result.userId).toBe("user-1");
+    expect(result.body).not.toHaveProperty("userId");
     expect(used.marks).toEqual(["token-row"]);
     expect(order).toEqual(["apply", "revoke:user-1"]);
     expect(order.indexOf("apply")).toBeLessThan(1);

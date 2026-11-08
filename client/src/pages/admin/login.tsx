@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Shield, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { adminLoginDestination } from "@/lib/adminSessionRecovery";
+import { currentAuthReadEpoch } from "@/lib/authRead";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -43,8 +44,10 @@ export default function AdminLogin() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    const epoch = currentAuthReadEpoch();
     void refetch().then((result) => {
       setFreshChecked(true);
+      if (epoch !== currentAuthReadEpoch()) return;
       if (!result.error && adminLoginDestination(result.data ?? null)) navigate("/admin/dashboard");
     });
   }, [navigate, refetch]);

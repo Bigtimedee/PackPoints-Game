@@ -57,7 +57,7 @@ export async function completePasswordReset(input: {
   markPasswordResetTokenUsed: (tokenId: string) => Promise<void>;
   revokeSessions?: (userId: string) => Promise<void>;
 }): Promise<
-  | { status: 200; body: typeof SUCCESS }
+  | { status: 200; body: typeof SUCCESS; userId: string }
   | { status: 400 | 500; body: { error: string } }
 > {
   const { token, password } = input;
@@ -87,5 +87,5 @@ export async function completePasswordReset(input: {
     }
   }
 
-  return { status: 200, body: SUCCESS };
+  return { status: 200, body: SUCCESS, userId: resetToken.userId };
 }

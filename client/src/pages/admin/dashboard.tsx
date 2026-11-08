@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { classifyDashboardFailure } from "@/lib/adminSessionRecovery";
+import { clearAuthSession } from "@/lib/authRead";
 import { ApiError } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Gamepad2, Star, Target, CreditCard, TrendingUp, Loader2 } from "lucide-react";
@@ -66,9 +67,13 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (failure !== "session-ended") return;
-    queryClient.setQueryData(["/api/auth/user"], null);
-    queryClient.removeQueries({ queryKey: ["/api/admin/dashboard"] });
-    navigate("/admin");
+    let cancel = false;
+    void clearAuthSession(queryClient).then(() => {
+      if (!cancel) navigate("/admin");
+    });
+    return () => {
+      cancel = true;
+    };
   }, [failure, navigate, queryClient]);
 
   if (authLoading || isLoading) {

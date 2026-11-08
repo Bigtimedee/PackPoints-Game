@@ -9,8 +9,9 @@ import express, { type Request, type Response, type NextFunction } from "express
 import session from "express-session";
 import { afterAll, describe, expect, it } from "vitest";
 import { isAuthenticated } from "../auth/middleware";
-import { endBrowserSession, SESSION_COOKIE_NAME } from "../auth/endBrowserSession";
+import { SESSION_COOKIE_NAME } from "../auth/endBrowserSession";
 import { completePasswordReset } from "../auth/passwordResetApply";
+import { replyToPasswordReset } from "../auth/passwordResetResponse";
 import { authenticatedAccount, sessionAuthenticatedUserId } from "../auth/sessionIdentity";
 import { getSessionCookieOptions } from "../auth/session";
 
@@ -19,8 +20,8 @@ type Account = { id: string; isAdmin: boolean; points: number };
 const previousNodeEnv = process.env.NODE_ENV;
 process.env.NODE_ENV = "development";
 
-const ADMIN: Account = { id: "admin-1", isAdmin: true, points: 6175 };
-const PLAYER: Account = { id: "player-1", isAdmin: false, points: 40 };
+const ADMIN: Account = { id: "fixture-admin", isAdmin: true, points: 111 };
+const PLAYER: Account = { id: "fixture-player", isAdmin: false, points: 40 };
 const USERS = new Map<string, Account>([ADMIN, PLAYER].map((row) => [row.id, row]));
 
 function dashboardFromRecords(records: Account[]) {
@@ -69,8 +70,24 @@ describe("admin dashboard session", () => {
   app.post("/login", (req, res) => {
     const id = typeof req.body?.id === "string" ? req.body.id : "";
     if (!USERS.has(id)) return res.status(401).json({ message: "Unauthorized" });
-    (req.session as { localUserId?: string }).localUserId = id;
+    const session = req.session as { localUserId?: string; workosUserId?: string; guestId?: string };
+    session.localUserId = id;
+    if (typeof req.body?.workosUserId === "string") session.workosUserId = req.body.workosUserId;
     req.session.save((err) => (err ? res.status(500).json({ error: "save" }) : res.json({ ok: true })));
+  });
+
+  app.post("/guest", (req, res) => {
+    (req.session as { guestId?: string }).guestId = "fixture-guest";
+    req.session.save((err) => (err ? res.status(500).json({ error: "save" }) : res.json({ ok: true })));
+  });
+
+  app.get("/session", (req, res) => {
+    const session = req.session as { localUserId?: string; guestId?: string; workosUserId?: string };
+    res.json({
+      localUserId: session.localUserId ?? null,
+      guestId: session.guestId ?? null,
+      workosUserId: session.workosUserId ?? null,
+    });
   });
 
   app.post("/workos-challenge", (req, res) => {
@@ -117,8 +134,7 @@ describe("admin dashboard session", () => {
         );
       },
     });
-    if (result.status === 200) await endBrowserSession(req, res);
-    res.status(result.status).json(result.body);
+    await replyToPasswordReset(req, res, result);
   });
 
   const server = app.listen(0);
@@ -128,11 +144,11 @@ describe("admin dashboard session", () => {
     process.env.NODE_ENV = previousNodeEnv;
   });
 
-  async function login(id: string): Promise<string> {
+  async function login(id: string, extra?: { workosUserId?: string }): Promise<string> {
     const res = await fetch(`${base}/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, ...extra }),
     });
     expect(res.status).toBe(200);
     const pair = cookiePairs(res).find((row) => row.startsWith(`${SESSION_COOKIE_NAME}=`));
@@ -142,7 +158,7 @@ describe("admin dashboard session", () => {
 
   it("returns the real dashboard for an admin and rejects guests, non-admins, and workos-only sessions", async () => {
     expect(REAL_DASHBOARD.overview.registeredUsersNonStaff).toBe(1);
-    expect(REAL_DASHBOARD.overview.totalPoints).toBe(6215);
+    expect(REAL_DASHBOARD.overview.totalPoints).toBe(151);
 
     const guest = await fetch(`${base}/api/admin/dashboard`);
     expect(guest.status).toBe(401);
@@ -228,6 +244,48 @@ describe("admin dashboard session", () => {
     expect((await fetch(`${base}/api/admin/dashboard`, { headers: { cookie: player } })).status).toBe(403);
   });
 
+  it("resetting account A from a browser signed in as B keeps B and drops only A", async () => {
+    const accountA = await login(ADMIN.id);
+    const accountB = await login(PLAYER.id, { workosUserId: "wos-fixture-b" });
+    const guest = await (async () => {
+      const res = await fetch(`${base}/guest`, { method: "POST" });
+      expect(res.status).toBe(200);
+      return cookiePairs(res).find((row) => row.startsWith(`${SESSION_COOKIE_NAME}=`))!;
+    })();
+
+    const reset = await fetch(`${base}/api/auth/reset-password`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: `${accountB}; packpts_anon=guest-fixture` },
+      body: JSON.stringify({ token: "good-token", password: "new-password-1" }),
+    });
+    expect(reset.status).toBe(200);
+    const body = await reset.json();
+    expect(body).toEqual({ success: true, message: "Password has been reset successfully" });
+    expect(body).not.toHaveProperty("userId");
+    const setCookies = (reset.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? [];
+    expect(setCookies.join("\n").toLowerCase()).not.toContain("01 jan 1970");
+    expect(setCookies.join("\n")).not.toContain("packpts_anon");
+
+    expect(await (await fetch(`${base}/session`, { headers: { cookie: accountB } })).json()).toEqual({
+      localUserId: PLAYER.id,
+      guestId: null,
+      workosUserId: "wos-fixture-b",
+    });
+    expect(await (await fetch(`${base}/api/auth/user`, { headers: { cookie: accountB } })).json()).toEqual(PLAYER);
+    expect((await fetch(`${base}/api/admin/dashboard`, { headers: { cookie: accountB } })).status).toBe(403);
+
+    expect(await (await fetch(`${base}/api/auth/user`, { headers: { cookie: accountA } })).json()).toBeNull();
+    expect((await fetch(`${base}/api/admin/dashboard`, { headers: { cookie: accountA } })).status).toBe(401);
+    expect(await (await fetch(`${base}/session`, { headers: { cookie: guest } })).json()).toMatchObject({
+      localUserId: null,
+      guestId: "fixture-guest",
+    });
+
+    const stored = await sessionsOf(store);
+    expect(Object.values(stored).some((sess) => sess.localUserId === ADMIN.id)).toBe(false);
+    expect(Object.values(stored).some((sess) => sess.localUserId === PLAYER.id)).toBe(true);
+  });
+
   it("does not end the browser session when the reset is rejected", async () => {
     const adminCookie = await login(ADMIN.id);
     const reset = await fetch(`${base}/api/auth/reset-password`, {
@@ -271,8 +329,8 @@ describe("reset and auth routes on current main", () => {
     const start = routes.indexOf('app.post("/api/auth/reset-password"');
     const handler = routes.slice(start, routes.indexOf("// ========================================\n  // IDENTITY LINKING"));
     expect(handler).toContain("sess->>'localUserId'");
-    expect(handler.indexOf("completePasswordReset")).toBeLessThan(handler.indexOf("endBrowserSession"));
-    expect(handler).toContain("if (result.status === 200)");
+    expect(handler).toContain("replyToPasswordReset");
+    expect(handler).not.toContain("endBrowserSession");
     expect(handler).not.toContain("packpts_anon");
     expect(handler).not.toContain("claimAnonForUser");
     const catchBlock = handler.slice(handler.indexOf("} catch"));
@@ -287,6 +345,7 @@ describe("reset and auth routes on current main", () => {
   });
 
   it("the dashboard page recovers a 401 and still shows a real load failure", () => {
+    expect(dashboard).toContain("clearAuthSession");
     expect(dashboard).toContain("classifyDashboardFailure");
     expect(dashboard).toContain("Your session ended. Sign in again.");
     expect(dashboard).toContain("Failed to load dashboard data.");
