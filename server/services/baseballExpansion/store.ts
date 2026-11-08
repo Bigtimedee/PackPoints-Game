@@ -34,7 +34,9 @@ export async function recordOriginalMembership(input: {
   slug: string;
   cardIds: string[];
   sources: { id: string; sourceUrl: string }[];
-}): Promise<{ stored: true; unchanged: boolean } | { stored: false; code: "membership_mismatch" | "witness_changed" | "foreign_card" }> {
+}): Promise<{ stored: true; unchanged: boolean } | { stored: false; code: "membership_mismatch" | "witness_changed" | "foreign_card" | "discovery_cohort_locked" }> {
+  const locked = await pool.query("SELECT 1 FROM discovery_cohorts WHERE set_id = $1", [input.setId]);
+  if ((locked.rowCount ?? 0) > 0) return { stored: false, code: "discovery_cohort_locked" };
   const body = submissionBody(input);
   if (body.ids.length === 0) return { stored: false, code: "foreign_card" };
   const owned = await pool.query<{ id: string }>(

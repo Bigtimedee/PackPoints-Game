@@ -121,6 +121,7 @@ import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerBaseballExpansionQaRoutes } from "./routes/baseballExpansionQa";
+import { registerDiscoveryCohortRoutes } from "./routes/discoveryCohortQa";
 import { insertIntegratedGameSet } from "./services/baseballExpansion/createIntegratedSet";
 import { respondIfHeldGameStart } from "./routes/gameStartHeld";
 import { registerSignupQaRoutes } from "./routes/signupQa";
@@ -569,6 +570,7 @@ export async function registerRoutes(
   registerSetFillQaRoutes(app);
   registerHeldSetImportQaRoutes(app);
   registerBaseballExpansionQaRoutes(app);
+  registerDiscoveryCohortRoutes(app);
 
   // Public: Get a single set by id with maker metadata and play count
   app.get("/api/sets/:id", (req, res) => {

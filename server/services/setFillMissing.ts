@@ -22,6 +22,7 @@ import { cardhedgeImportRuns, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { DONRUSS_1987_HOLD_ID } from "../config/heldSets";
 import { expansionFillConfigs } from "./baseballExpansion/registry";
+import { loadExactSourceGate } from "./baseballExpansion/discoveryCohort";
 import { classifyCard } from "./cardClassifier";
 import { cardDetails, cardSearch, normalizeImageUrl, type CardHedgeCard } from "./cardhedge/client";
 
@@ -383,8 +384,15 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
   let detailsLookups = 0;
   let detailsImagesFound = 0;
   const candidates: FillCandidate[] = [];
+  const exactSource = await loadExactSourceGate(setId);
   for (const cand of pending) {
     const n = normalizeBaseNumber(cand.number)!;
+    const exact = exactSource(cand.cardhedgeCardId, cand.number);
+    if (exact) {
+      bump(skipped, exact);
+      excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: exact });
+      continue;
+    }
     if (opts.rejectCardIds?.has(cand.cardhedgeCardId)) {
       bump(skipped, "reviewed_source_reject");
       excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: "reviewed_source_reject" });
