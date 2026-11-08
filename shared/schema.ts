@@ -5310,7 +5310,7 @@ export const discoveryCohortMembers = pgTable("discovery_cohort_members", {
   originalBytes: integer("original_bytes").notNull(),
   disposition: text("disposition").notNull(),
   routing: text("routing").notNull(),
-  playableCardId: varchar("playable_card_id").references(() => playableCards.id),
+  playableCardId: varchar("playable_card_id").references(() => playableCards.id, { onDelete: "set null" }),
 }, (table) => [
   uniqueIndex("uq_discovery_member_supplier").on(table.setId, table.supplierId),
   uniqueIndex("uq_discovery_member_number").on(table.setId, table.cardNumber),
@@ -5344,9 +5344,10 @@ export const discoveryAdditions = pgTable("discovery_additions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("uq_discovery_addition_supplier").on(table.setId, table.supplierId),
+  uniqueIndex("uq_discovery_addition_number").on(table.setId, table.cardNumber),
 ]);
 
-/** Hash of bytes the caller staged. The image itself is not stored. */
+/** Immutable bytes staged for one original member. Import must match these bytes. */
 export const discoverySourceStaging = pgTable("discovery_source_staging", {
   setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
   supplierId: text("supplier_id").notNull(),
@@ -5354,9 +5355,30 @@ export const discoverySourceStaging = pgTable("discovery_source_staging", {
   width: integer("width").notNull(),
   height: integer("height").notNull(),
   bytes: integer("bytes").notNull(),
+  imageBytes: bytea("image_bytes").notNull(),
   stagedAt: timestamp("staged_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.setId, table.supplierId] }),
+]);
+
+/**
+ * Links an inserted playable card to the staged bytes. source_accepted and
+ * opaque_qa_passed stay false: a hash match is not a review pass.
+ */
+export const discoveryImportProvenance = pgTable("discovery_import_provenance", {
+  playableCardId: varchar("playable_card_id").primaryKey().references(() => playableCards.id, { onDelete: "cascade" }),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  supplierId: text("supplier_id").notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  byteLength: integer("byte_length").notNull(),
+  sourceAccepted: boolean("source_accepted").notNull().default(false),
+  opaqueQaPassed: boolean("opaque_qa_passed").notNull().default(false),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_discovery_provenance_member").on(table.memberKey),
+  check("discovery_provenance_not_accepted", sql`${table.sourceAccepted} = false`),
+  check("discovery_provenance_not_opaque_qa", sql`${table.opaqueQaPassed} = false`),
 ]);
 
 /**

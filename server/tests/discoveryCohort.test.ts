@@ -21,15 +21,17 @@ vi.mock("../services/cardhedge/client", async (orig) => {
 });
 
 const { db } = await import("../db");
-const { discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals } = await import("@shared/schema");
+const { discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals, playableCards } = await import("@shared/schema");
 const { insertIntegratedGameSet } = await import("../services/baseballExpansion/createIntegratedSet");
 const { fillMissingCards } = await import("../services/setFillMissing");
+const { sendUnmaskedCard } = await import("../services/playImageSend");
 const { recordOriginalMembership } = await import("../services/baseballExpansion/store");
 const { designApprovalDecision } = await import("../services/baseballExpansion/health");
 const { getMaskProfile } = await import("../masking/maskProfiles");
 const { isDaily5ExpansionBlocked, isMissingExpansionId } = await import("../services/baseballExpansion/registry");
 const {
   UD_1991_DISCOVERY,
+  canonicalMemberRecord,
   appendSourceRevision,
   createDiscoveryCohort,
   discoveryPin,
@@ -65,26 +67,45 @@ function member(ordinal: number, sha: string, supplierId: string, disposition: "
 
 describe("discovery cohort rules", () => {
   it("pins the 1991 Upper Deck discovery file and refuses a 22 or 150 subset", () => {
-    expect(discoveryPin(UD)).toEqual({ originalCount: 486, artifactSha256: UD_1991_DISCOVERY.artifactSha256 });
+    expect(discoveryPin(UD)).toEqual({
+      originalCount: 486,
+      artifactSha256: UD_1991_DISCOVERY.artifactSha256,
+      membershipSha256: UD_1991_DISCOVERY.membershipSha256,
+    });
     expect(discoveryPin(OTHER)).toBeNull();
     const one = member(1, "a".repeat(64), "supplier-a", "pass-candidate");
     expect(parseCohortMembers([one], 800)).toHaveLength(1);
     expect(parseCohortMembers([{ ...one, supplierId: "https://img.example/a.jpg" }], 800)).toBeNull();
+    const unset = {
+      playableCardId: null, importedSha256: null, originalSha256: "a".repeat(64),
+      sourceAccepted: false, opaqueQaPassed: false, geometryMeasured: false, staged: true,
+    };
     const health = evaluateCohortHealth({
       members: [
-        { disposition: "pass-candidate", sourceVerified: true, geometryMeasured: false },
-        { disposition: "hold", sourceVerified: false, geometryMeasured: false },
-        { disposition: "drop", sourceVerified: false, geometryMeasured: false },
+        { ...unset, disposition: "pass-candidate" },
+        { ...unset, disposition: "hold", staged: false },
+        { ...unset, disposition: "drop", staged: false },
       ],
       additions: 4,
       requiredCount: 486,
     });
     expect(health.partial).toBe(true);
+    expect(health.passCount).toBe(0);
+    expect(health.stagedDiscoveryCount).toBe(1);
     expect(health.qualifying).toBe(false);
     expect(health.reviewReady).toBe(false);
     expect(health.additionsIncludedInRate).toBe(false);
     expect(health.releaseAuthorized).toBe(false);
-    expect(health.originalRate).toBeCloseTo(1 / 3);
+    expect(health.originalRate).toBe(0);
+    const allNull = evaluateCohortHealth({
+      members: [1, 2, 3].map(() => ({ ...unset, disposition: "pass-candidate" })),
+      additions: 2,
+      requiredCount: 3,
+    });
+    expect(allNull.passCount).toBe(0);
+    expect(allNull.nonPassCount).toBe(3);
+    expect(allNull.reviewReady).toBe(false);
+    expect(allNull.originalRate).toBe(0);
   });
 
   it("does not treat an unversioned polygon as a usable mask", () => {
@@ -93,7 +114,11 @@ describe("discovery cohort rules", () => {
     expect(geometryUsable({ ...bound, memberKey: "m", sourceSha256: "ff", width: 10, height: 20, geometryVersion: "v", polygonPixels: polygon, polygonNormalized: polygon }, bound).ok).toBe(false);
     expect(geometryUsable({ ...bound, memberKey: "m", sourceSha256: "ab", width: 9, height: 20, geometryVersion: "v", polygonPixels: polygon, polygonNormalized: polygon }, bound).ok).toBe(false);
     expect(geometryUsable({ ...bound, memberKey: "m", sourceSha256: "ab", width: 10, height: 20, geometryVersion: null, polygonPixels: polygon, polygonNormalized: polygon }, bound).ok).toBe(false);
+    expect(geometryUsable({ ...bound, memberKey: "m", sourceSha256: "ab", width: 10, height: 20, geometryVersion: "not-a-version", polygonPixels: polygon, polygonNormalized: polygon }, bound).ok).toBe(false);
     expect(geometryUsable({ ...bound, memberKey: "m", sourceSha256: "ab", width: 10, height: 20, geometryVersion: "v", polygonPixels: null, polygonNormalized: null }, bound).ok).toBe(false);
+    const left = { memberKey: `candidate-0001|${"a".repeat(64)}`, ordinal: 1, cardNumber: "1", supplierId: "id|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|1|1|1|hold", originalSha256: "a".repeat(64), originalWidth: 2, originalHeight: 2, originalBytes: 2, disposition: "hold" as const, routing: "x" };
+    const right = { ...left, supplierId: "id", originalWidth: 1, originalHeight: 1, originalBytes: 1, routing: `${"a".repeat(64)}|2|2|2|hold|x` };
+    expect(canonicalMemberRecord(left)).not.toBe(canonicalMemberRecord(right));
   });
 });
 
@@ -102,6 +127,21 @@ describe("discovery cohort persistence", () => {
   let sha = "";
   const supplierA = "supplier-synth-a";
   const supplierB = "supplier-synth-b";
+
+  async function resetCohort(setId: string) {
+    await db.update(discoveryCohortMembers).set({ playableCardId: null }).where(eq(discoveryCohortMembers.setId, setId));
+    await db.delete(discoveryImportProvenance).where(eq(discoveryImportProvenance.setId, setId));
+    await db.delete(playableCards).where(eq(playableCards.gameSetId, setId));
+    const { cardhedgeImportRuns } = await import("@shared/schema");
+    await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, setId));
+    await db.delete(geometryProposals).where(eq(geometryProposals.setId, setId));
+    await db.delete(discoverySourceStaging).where(eq(discoverySourceStaging.setId, setId));
+    await db.delete(discoveryAdditions).where(eq(discoveryAdditions.setId, setId));
+    const members = await db.select({ memberKey: discoveryCohortMembers.memberKey }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, setId));
+    for (const member of members) await db.delete(discoverySourceRevisions).where(eq(discoverySourceRevisions.memberKey, member.memberKey));
+    await db.delete(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, setId));
+    await db.delete(discoveryCohorts).where(eq(discoveryCohorts.setId, setId));
+  }
 
   beforeAll(async () => {
     jpeg = await sharp({ create: { width: 40, height: 60, channels: 3, background: { r: 8, g: 16, b: 24 } } }).jpeg().toBuffer();
@@ -116,20 +156,13 @@ describe("discovery cohort persistence", () => {
     });
     await db.update(gameSets).set({ isActive: true }).where(eq(gameSets.id, OTHER));
     await db.update(gameSets).set({ isActive: true }).where(eq(gameSets.id, UD));
+    await resetCohort(OTHER);
+    await resetCohort(UD);
   });
 
   afterAll(async () => {
-    await db.delete(geometryProposals).where(eq(geometryProposals.setId, OTHER));
-    await db.delete(discoverySourceStaging).where(eq(discoverySourceStaging.setId, OTHER));
-    await db.delete(discoveryAdditions).where(eq(discoveryAdditions.setId, OTHER));
-    const members = await db.select({ memberKey: discoveryCohortMembers.memberKey }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, OTHER));
-    if (members.length) {
-      for (const member of members) {
-        await db.delete(discoverySourceRevisions).where(eq(discoverySourceRevisions.memberKey, member.memberKey));
-      }
-    }
-    await db.delete(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, OTHER));
-    await db.delete(discoveryCohorts).where(eq(discoveryCohorts.setId, OTHER));
+    await resetCohort(OTHER);
+    await resetCohort(UD);
   });
 
   it("keeps the original cohort across a later read, rejects a changed membership, and appends revisions", async () => {
@@ -259,7 +292,57 @@ describe("discovery cohort persistence", () => {
       polygonPixels: [[1, 1], [20, 1], [20, 20]],
       polygonNormalized: [[0, 0], [0.5, 0], [0.5, 0.3]],
     });
-    expect(unmeasured).toMatchObject({ ok: true, approval: false, usable: false });
+    expect(unmeasured).toMatchObject({ ok: false, code: "unknown_version" });
+    const substituted = await createDiscoveryCohort({
+      setId: UD,
+      artifactSha256: UD_1991_DISCOVERY.artifactSha256,
+      members: Array.from({ length: 486 }, (_, index) => member(index + 1, "ab".repeat(32), `sub-${index}`, "drop")),
+    });
+    expect(substituted).toMatchObject({ ok: false, code: "membership_mismatch" });
+    expect(await readDiscoveryCohort(UD)).toBeNull();
+
+    const hold = await stageExactSource(OTHER, "supplier-hold", Buffer.alloc(0));
+    expect(hold.ok).toBe(false);
+    supplierCards.push({
+      card_id: "supplier-hold", player: "Held Player", set: "1990 Upper Deck Baseball", number: "2", variant: "Base", category: "Baseball", image: "https://img.example/hold.jpg",
+    });
+    const driftedImport = await fillMissingCards(OTHER, {
+      dryRun: false,
+      details: false,
+      fetchImage: async () => Buffer.from("changed-bytes"),
+    });
+    expect(driftedImport.inserted).toEqual([]);
+    expect(driftedImport.excluded.some((row) => row.cardhedgeCardId === supplierA && row.reason === "source_drift")).toBe(true);
+    expect(driftedImport.excluded.some((row) => row.cardhedgeCardId === "supplier-hold" && row.reason === "not_importable")).toBe(true);
+    expect(driftedImport.sourceValidated).toBe(false);
+    const matched = await fillMissingCards(OTHER, {
+      dryRun: false,
+      details: false,
+      fetchImage: async () => jpeg,
+    });
+    expect(matched.inserted.map((row) => row.cardhedgeCardId)).toEqual([supplierA]);
+    expect(matched.sourceValidated).toBe(false);
+    const health = await readDiscoveryCohort(OTHER);
+    expect(health?.health.passCount).toBe(0);
+    expect(health?.health.reviewReady).toBe(false);
+    expect(health?.members.find((row) => row.supplierId === supplierA)?.playableCardId).toBeTruthy();
+    const served = { headers: {} as Record<string, string>, body: null as Buffer | null, setHeader(name: string, value: string) { this.headers[name] = value; }, removeHeader() {}, end(body?: Buffer) { this.body = body ?? null; } };
+    await sendUnmaskedCard(served as never, matched.inserted[0]!.id);
+    expect(served.body?.equals(jpeg)).toBe(true);
+    const replay = await appendSourceRevision({
+      setId: OTHER, memberKey: `candidate-0002|${"b".repeat(64)}`, sha256: "1".repeat(64), width: 40, height: 60, bytes: 10, parentSha256: "b".repeat(64),
+    });
+    expect(replay).toMatchObject({ ok: true, unchanged: true, importEffect: "none" });
+    const [left, right] = await Promise.all([
+      appendSourceRevision({ setId: OTHER, memberKey: `candidate-0002|${"b".repeat(64)}`, sha256: "4".repeat(64), width: 40, height: 60, bytes: 11, parentSha256: "1".repeat(64) }),
+      appendSourceRevision({ setId: OTHER, memberKey: `candidate-0002|${"b".repeat(64)}`, sha256: "5".repeat(64), width: 40, height: 60, bytes: 12, parentSha256: "1".repeat(64) }),
+    ]);
+    expect([left.ok, right.ok].filter(Boolean).length).toBeGreaterThan(0);
+    expect([left, right].every((row) => row.ok || ("code" in row && row.code === "revision_conflict" || row.code === "parent_mismatch"))).toBe(true);
+    const duplicateNumber = await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-second", cardNumber: "9", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
+    });
+    expect(duplicateNumber).toMatchObject({ ok: false, code: "number_claimed" });
     const rendered = await renderOpaqueNameplate(jpeg, [[1, 1], [20, 1], [20, 20], [1, 20]]);
     expect(rendered.native.length).toBeGreaterThan(0);
     expect(rendered.maskedPreview.length).toBeGreaterThan(0);

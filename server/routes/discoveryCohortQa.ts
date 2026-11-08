@@ -68,20 +68,21 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
     if (!gate(req, res)) return;
     const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
     if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
-    if (typeof body.memberKey !== "string" || typeof body.sha256 !== "string" || typeof body.parentSha256 !== "string") {
-      return send(res, 400, { error: "revision needs memberKey, sha256, parentSha256, width, height, bytes" });
-    }
-    if (typeof body.width !== "number" || typeof body.height !== "number" || typeof body.bytes !== "number") {
-      return send(res, 400, { error: "revision needs memberKey, sha256, parentSha256, width, height, bytes" });
+    const shaOk = typeof body.sha256 === "string" && /^[a-f0-9]{64}$/.test(body.sha256);
+    const parentOk = typeof body.parentSha256 === "string" && /^[a-f0-9]{64}$/.test(body.parentSha256);
+    const sizeOk = typeof body.width === "number" && typeof body.height === "number" && typeof body.bytes === "number"
+      && body.width >= 1 && body.height >= 1 && body.bytes >= 1 && body.width <= 10000 && body.height <= 10000 && body.bytes <= 20_000_000;
+    if (typeof body.memberKey !== "string" || !shaOk || !parentOk || !sizeOk) {
+      return send(res, 400, { error: "revision needs a member, two sha256 values, and positive dimensions" });
     }
     void appendSourceRevision({
       setId: req.params.setId,
       memberKey: body.memberKey,
-      sha256: body.sha256,
-      parentSha256: body.parentSha256,
-      width: body.width,
-      height: body.height,
-      bytes: body.bytes,
+      sha256: body.sha256 as string,
+      parentSha256: body.parentSha256 as string,
+      width: body.width as number,
+      height: body.height as number,
+      bytes: body.bytes as number,
     }).then((result) => send(res, result.ok ? 200 : 409, { ...result, releaseAuthorized: false }))
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "revision failed" }); });
   });
@@ -111,7 +112,8 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
   app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/stage", (req, res) => {
     if (!gate(req, res)) return;
     const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
-    if (!noUrl(body) || typeof body.supplierId !== "string" || typeof body.imageBase64 !== "string") {
+    const maxEncoded = Math.ceil(2_000_000 * 4 / 3) + 4;
+    if (!noUrl(body) || typeof body.supplierId !== "string" || typeof body.imageBase64 !== "string" || body.imageBase64.length > maxEncoded) {
       return send(res, 400, { error: "stage needs supplierId and imageBase64, not a URL" });
     }
     const bytes = Buffer.from(body.imageBase64, "base64");

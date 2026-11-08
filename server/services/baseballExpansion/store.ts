@@ -4,6 +4,7 @@
  * Player names and source URLs are not stored.
  */
 import { createHash } from "crypto";
+import type { PoolClient } from "pg";
 import { pool } from "../../db";
 import { canonicalMembership, membershipMatches, sourceWitness } from "./identity";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
@@ -35,17 +36,41 @@ export async function recordOriginalMembership(input: {
   cardIds: string[];
   sources: { id: string; sourceUrl: string }[];
 }): Promise<{ stored: true; unchanged: boolean } | { stored: false; code: "membership_mismatch" | "witness_changed" | "foreign_card" | "discovery_cohort_locked" }> {
-  const locked = await pool.query("SELECT 1 FROM discovery_cohorts WHERE set_id = $1", [input.setId]);
-  if ((locked.rowCount ?? 0) > 0) return { stored: false, code: "discovery_cohort_locked" };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`set-membership:${input.setId}`]);
+    const locked = await client.query("SELECT 1 FROM discovery_cohorts WHERE set_id = $1", [input.setId]);
+    if ((locked.rowCount ?? 0) > 0) {
+      await client.query("ROLLBACK");
+      return { stored: false, code: "discovery_cohort_locked" };
+    }
+    const result = await writeOriginalMembership(client, input);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function writeOriginalMembership(client: PoolClient, input: {
+  setId: string;
+  slug: string;
+  cardIds: string[];
+  sources: { id: string; sourceUrl: string }[];
+}): Promise<{ stored: true; unchanged: boolean } | { stored: false; code: "membership_mismatch" | "witness_changed" | "foreign_card" }> {
   const body = submissionBody(input);
   if (body.ids.length === 0) return { stored: false, code: "foreign_card" };
-  const owned = await pool.query<{ id: string }>(
+  const owned = await client.query<{ id: string }>(
     "SELECT id FROM playable_cards WHERE game_set_id = $1 AND lower(id) = ANY($2::text[])",
     [input.setId, body.ids],
   );
   const have = new Set((owned.rows ?? []).map((row) => row.id.toLowerCase()));
   if (body.ids.some((id) => !have.has(id))) return { stored: false, code: "foreign_card" };
-  const inserted = await pool.query(
+  const inserted = await client.query(
     `INSERT INTO design_pool_submissions
       (set_id, slug, original_count, manifest_sha256, card_ids, mask_version, source_witness)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
@@ -53,7 +78,7 @@ export async function recordOriginalMembership(input: {
      RETURNING set_id`,
     [input.setId, input.slug, body.count, body.hash, JSON.stringify(body.ids), body.maskVersion, body.sourceWitness],
   );
-  const winner = await pool.query<Winner>(
+  const winner = await client.query<Winner>(
     "SELECT manifest_sha256, card_ids, source_witness, mask_version FROM design_pool_submissions WHERE set_id = $1",
     [input.setId],
   );

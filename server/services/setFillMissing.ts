@@ -22,7 +22,7 @@ import { cardhedgeImportRuns, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { DONRUSS_1987_HOLD_ID } from "../config/heldSets";
 import { expansionFillConfigs } from "./baseballExpansion/registry";
-import { loadExactSourceGate } from "./baseballExpansion/discoveryCohort";
+import { bindImportedCard, cohortGuardsImport, fetchImportImage, loadExactSourceGate, verifyImportBytes } from "./baseballExpansion/discoveryCohort";
 import { classifyCard } from "./cardClassifier";
 import { cardDetails, cardSearch, normalizeImageUrl, type CardHedgeCard } from "./cardhedge/client";
 
@@ -127,6 +127,8 @@ export interface FillMissingOptions {
    * Ids only. Not image URLs and not a source-quality approval of the rest.
    */
   rejectCardIds?: ReadonlySet<string>;
+  /** Test double for the supplier image GET. Production downloads the candidate URL. */
+  fetchImage?: (url: string) => Promise<Buffer | null>;
 }
 
 export interface ConflictOwner {
@@ -486,8 +488,21 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
     .returning({ id: cardhedgeImportRuns.id });
   report.importRunId = run.id;
   const byCh = new Map(candidates.map((c) => [c.cardhedgeCardId, c]));
+  const guardsImport = await cohortGuardsImport(setId);
   for (const cand of candidates) {
     const card = byId.get(cand.cardhedgeCardId)!;
+    let binding: { memberKey: string; sha256: string } | null = null;
+    let downloaded: Buffer | null = null;
+    if (guardsImport) {
+      downloaded = await (opts.fetchImage ?? fetchImportImage)(cand.imageUrl || "");
+      const verdict = await verifyImportBytes(setId, cand.cardhedgeCardId, cand.number, downloaded);
+      if (!verdict.ok) {
+        bump(skipped, verdict.code);
+        excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: verdict.code });
+        continue;
+      }
+      binding = { memberKey: verdict.memberKey, sha256: verdict.sha256 };
+    }
     const rows = await db.insert(playableCards).values({
       gameSetId: setId,
       cardhedgeCardId: cand.cardhedgeCardId,
@@ -505,6 +520,12 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
       .returning({ id: playableCards.id, cardhedgeCardId: playableCards.cardhedgeCardId });
     if (rows[0]) {
       const c = byCh.get(rows[0].cardhedgeCardId)!;
+      if (binding && downloaded) {
+        await bindImportedCard({
+          setId, memberKey: binding.memberKey, supplierId: cand.cardhedgeCardId,
+          playableCardId: rows[0].id, sha256: binding.sha256, byteLength: downloaded.length,
+        });
+      }
       report.inserted.push({ id: rows[0].id, cardhedgeCardId: c.cardhedgeCardId, number: c.number, player: c.player });
     } else {
       report.insertConflicts++;

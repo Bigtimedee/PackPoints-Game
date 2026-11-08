@@ -12,6 +12,7 @@ import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
 import { PUBLIC_MASK_CACHE_CONTROL } from "./publicMaskGate";
+import { readBoundSourceBytes } from "./baseballExpansion/discoveryCohort";
 
 function setUnmaskedResponseHeaders(res: Response, contentType: string): void {
   setUnmaskedHeaders(res);
@@ -34,6 +35,12 @@ function endUnmasked(res: Response, body?: Buffer): void {
 /** Original scan. Caller must already have authorized this card. */
 export async function sendUnmaskedCard(res: Response, cardId: string): Promise<void> {
   try {
+    const bound = await readBoundSourceBytes(cardId);
+    if (bound) {
+      setUnmaskedResponseHeaders(res, "image/jpeg");
+      endUnmasked(res, bound);
+      return;
+    }
     let sourceUrl = await getCachedImageUrl(cardId);
     if (!sourceUrl) sourceUrl = await getSourceUrlForCard(cardId);
     if (!sourceUrl) {
