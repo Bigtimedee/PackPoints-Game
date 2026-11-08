@@ -16,6 +16,7 @@ import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
 import { applyVerifiedPasswordReset, UnverifiedPasswordReset } from "./auth/passwordResetApply";
 import { selectLoginIdentity, selectResetIdentity } from "./auth/identitySelect";
+import { verifyStoredPasswords, type PasswordVerifyBranch } from "./auth/credentialCheck";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
@@ -76,7 +77,7 @@ export interface IStorage {
   createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string; oauthProvider?: "google" | "apple" | "workos" }, growth?: import("./services/growthStage1").GrowthSignupAttach | null): Promise<User>;
   linkWorkosUser(userId: string, workosUserId: string): Promise<void>;
   setOauthProviderIfEmpty(userId: string, oauthProvider: "google" | "apple" | "workos"): Promise<void>;
-  validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
+  validateLocalCredentials(usernameOrEmail: string, password: string): Promise<{ user: User | null; branch: "ok" | "no_user" | "ambiguous_identity" | PasswordVerifyBranch }>;
   findUserForPasswordReset(email: string): Promise<{ id: string } | undefined>;
   updateUserPassword(userId: string, newPassword: string): Promise<boolean>;
   
@@ -493,17 +494,26 @@ export class DatabaseStorage implements IStorage {
       .where(sql`lower(btrim(${users.username})) = lower(${trimmed}) OR lower(btrim(${users.email})) = lower(${trimmed})`);
   }
 
-  async validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null> {
+  async validateLocalCredentials(
+    usernameOrEmail: string,
+    password: string,
+  ): Promise<{ user: User | null; branch: "ok" | "no_user" | "ambiguous_identity" | PasswordVerifyBranch }> {
     const pick = selectLoginIdentity(usernameOrEmail, await this.identityCandidates(usernameOrEmail));
-    if (pick.status !== "selected") return null;
+    if (pick.status === "none") return { user: null, branch: "no_user" };
+    if (pick.status === "ambiguous") return { user: null, branch: "ambiguous_identity" };
+    const rows = await db
+      .select({ passwordHash: localCredentials.passwordHash })
+      .from(localCredentials)
+      .where(eq(localCredentials.userId, pick.id));
+    const branch = await verifyStoredPasswords({
+      hashes: rows.map((row) => row.passwordHash),
+      password,
+      compare: (plain, hash) => bcrypt.compare(plain, hash),
+    });
+    if (branch !== "ok") return { user: null, branch };
     const user = await this.getUser(pick.id);
-    if (!user) return null;
-
-    const [credential] = await db.select().from(localCredentials).where(eq(localCredentials.userId, user.id));
-    if (!credential) return null;
-
-    const valid = await bcrypt.compare(password, credential.passwordHash);
-    return valid ? user : null;
+    if (!user) return { user: null, branch: "no_user" };
+    return { user, branch: "ok" };
   }
 
   async findUserForPasswordReset(email: string): Promise<{ id: string } | undefined> {

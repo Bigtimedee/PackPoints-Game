@@ -1,3 +1,4 @@
+import { summarizeStoredHashes, type CredentialAlgorithm, type CredentialSource, type CredentialSummary, type CredentialVerifier } from "./credentialCheck";
 import { exactEmailMatch, selectLoginIdentity, type IdentityCandidate, type IdentitySelection } from "./identitySelect";
 import { normalizeEmail } from "./normalizeEmail";
 
@@ -24,6 +25,11 @@ export type AccountStatusMatch = {
   exactEmailMatch: boolean;
   /** True only for the one account the login selector would use. */
   loginSelected: boolean;
+  credentialCount: number;
+  formatValid: boolean;
+  algorithm: CredentialAlgorithm;
+  credentialSource: CredentialSource;
+  verifier: CredentialVerifier;
 };
 
 export type AccountStatusReport = {
@@ -39,6 +45,8 @@ export type AccountStatusRow = {
   hasLocalCredential: boolean;
   workosLinked: boolean;
   provider: AccountProvider | null;
+  /** Used only to classify. Never copied into the public report. */
+  passwordHashes?: readonly unknown[];
 };
 
 const EMAIL_MAX = 320;
@@ -71,9 +79,32 @@ export function sanitizeProvider(value: unknown, appleLinked: boolean): AccountP
   return null;
 }
 
+const ALGORITHMS = new Set<CredentialAlgorithm>(["bcrypt", "unrecognized", "absent", "mixed"]);
+
+function publicCredential(account: Partial<CredentialSummary>): CredentialSummary {
+  const rawCount = account.credentialCount;
+  const credentialCount = typeof rawCount === "number" && Number.isInteger(rawCount) && rawCount > 0 ? rawCount : 0;
+  const algorithm: CredentialAlgorithm = credentialCount === 0
+    ? "absent"
+    : account.algorithm && ALGORITHMS.has(account.algorithm) ? account.algorithm : "unrecognized";
+  const credentialSource: CredentialSource = credentialCount === 0 || account.credentialSource !== "local_credentials"
+    ? "absent"
+    : "local_credentials";
+  const verifier: CredentialVerifier = account.verifier === "bcrypt.compare" ? "bcrypt.compare" : "rejected_before_compare";
+  return {
+    credentialCount,
+    formatValid: account.formatValid === true && credentialCount > 0 && algorithm === "bcrypt",
+    algorithm,
+    credentialSource,
+    verifier,
+  };
+}
+
+export type AccountStatusInput = Omit<AccountStatusMatch, keyof CredentialSummary> & Partial<CredentialSummary>;
+
 export function presentAccountStatus(
   matched: number,
-  accounts: AccountStatusMatch[],
+  accounts: AccountStatusInput[],
   loginSelection: IdentitySelection["status"] = "none",
 ): AccountStatusReport {
   const count = Number.isInteger(matched) && matched >= 0 ? matched : 0;
@@ -89,6 +120,7 @@ export function presentAccountStatus(
       provider: sanitizeProvider(account.provider, false),
       exactEmailMatch: account.exactEmailMatch === true,
       loginSelected: account.loginSelected === true,
+      ...publicCredential(account),
     })),
   };
 }
@@ -103,14 +135,18 @@ export function annotateAccountStatus(
   const pick = selectLoginIdentity(rawEmail, loginCandidates);
   return presentAccountStatus(
     matched,
-    rows.map((row) => ({
-      username: row.username,
-      hasLocalCredential: row.hasLocalCredential,
-      workosLinked: row.workosLinked,
-      provider: row.provider,
-      exactEmailMatch: exactEmailMatch(row.email, rawEmail),
-      loginSelected: pick.status === "selected" && pick.id === row.id,
-    })),
+    rows.map((row) => {
+      const summary = summarizeStoredHashes(row.passwordHashes ?? []);
+      return {
+        username: row.username,
+        hasLocalCredential: summary.credentialCount > 0,
+        workosLinked: row.workosLinked,
+        provider: row.provider,
+        exactEmailMatch: exactEmailMatch(row.email, rawEmail),
+        loginSelected: pick.status === "selected" && pick.id === row.id,
+        ...summary,
+      };
+    }),
     pick.status,
   );
 }

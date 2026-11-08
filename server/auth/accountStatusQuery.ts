@@ -68,16 +68,21 @@ export async function findAuthAccountStatus(normalizedEmail: string, rawEmail: s
   const credentialRows = ids.length === 0
     ? []
     : await db
-      .select({ userId: localCredentials.userId })
+      .select({ userId: localCredentials.userId, passwordHash: localCredentials.passwordHash })
       .from(localCredentials)
       .where(inArray(localCredentials.userId, ids));
+  const hashesByUser = new Map<string, string[]>();
+  for (const credential of credentialRows) {
+    const list = hashesByUser.get(credential.userId) ?? [];
+    list.push(credential.passwordHash);
+    hashesByUser.set(credential.userId, list);
+  }
   const appleRows = ids.length === 0
     ? []
     : await db
       .select({ userId: appleUsers.userId })
       .from(appleUsers)
       .where(inArray(appleUsers.userId, ids));
-  const withCredential = new Set(credentialRows.map((row) => row.userId));
   const withApple = new Set(appleRows.map((row) => row.userId));
 
   return annotateAccountStatus(
@@ -87,7 +92,8 @@ export async function findAuthAccountStatus(normalizedEmail: string, rawEmail: s
       id: row.id,
       email: row.email,
       username: row.username,
-      hasLocalCredential: withCredential.has(row.id),
+      hasLocalCredential: (hashesByUser.get(row.id) ?? []).length > 0,
+      passwordHashes: hashesByUser.get(row.id) ?? [],
       workosLinked: asBool(row.workosLinked),
       provider: sanitizeProvider(row.oauthProvider, withApple.has(row.id)),
     })),

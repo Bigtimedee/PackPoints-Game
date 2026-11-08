@@ -157,7 +157,7 @@ export function registerIosRoutes(app: Express) {
 
     const { email, password, deviceHint } = parsed.data;
 
-    const user = await storage.validateLocalCredentials(email, password);
+    const user = (await storage.validateLocalCredentials(email, password)).user;
     if (!user) {
       return res.status(401).json({ error: "Invalid credentials" });
     }

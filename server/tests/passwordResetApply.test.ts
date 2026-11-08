@@ -214,8 +214,8 @@ describe("reset wiring on current main", () => {
     const reset = storage.slice(storage.indexOf("async findUserForPasswordReset"), storage.indexOf("async updateUserPassword"));
     const forgot = routes.slice(routes.indexOf('app.post("/api/auth/forgot-password"'), routes.indexOf('app.get("/api/auth/validate-reset-token"'));
     expect(validate).toContain("selectLoginIdentity");
-    expect(validate).toContain('pick.status !== "selected"');
-    expect(validate).toContain("if (!credential) return null");
+    expect(validate).toContain('branch: "ambiguous_identity"');
+    expect(validate).toContain("verifyStoredPasswords");
     expect(reset).toContain("selectResetIdentity");
     expect(forgot).toContain("findUserForPasswordReset");
     expect(forgot).not.toContain("storage.getUserByEmail");
