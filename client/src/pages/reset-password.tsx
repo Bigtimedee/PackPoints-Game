@@ -5,14 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { KeyRound, Loader2, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { afterPasswordResetSuccess, PASSWORD_RESET_LOGIN_HREF } from "@/lib/adminSessionRecovery";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ResetPassword() {
   const [, navigate] = useLocation();
   const searchString = useSearch();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
   const token = new URLSearchParams(searchString).get("token") || "";
   
@@ -38,6 +40,7 @@ export default function ResetPassword() {
       return response.json();
     },
     onSuccess: () => {
+      void afterPasswordResetSuccess(queryClient);
       setSuccess(true);
       toast({
         title: "Password reset successful",
@@ -148,8 +151,13 @@ export default function ResetPassword() {
             </CardDescription>
           </CardHeader>
           <CardContent className="text-center">
-            <Button asChild className="w-full" data-testid="button-go-to-login">
-              <Link href="/admin">Go to Login</Link>
+            <Button
+              type="button"
+              className="w-full"
+              data-testid="button-go-to-login"
+              onClick={() => { window.location.assign(PASSWORD_RESET_LOGIN_HREF); }}
+            >
+              Go to Login
             </Button>
           </CardContent>
         </Card>

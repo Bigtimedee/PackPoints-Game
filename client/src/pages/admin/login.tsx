@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Shield, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { adminLoginDestination } from "@/lib/adminSessionRecovery";
+import { currentAuthReadEpoch } from "@/lib/authRead";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -13,7 +15,9 @@ import { useToast } from "@/hooks/use-toast";
 export default function AdminLogin() {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
-  const { user, isLoading, isAuthenticated } = useAuth();
+  const { user, isLoading, isAuthenticated, refetch } = useAuth();
+  const [freshChecked, setFreshChecked] = useState(false);
+  const started = useRef(false);
   const { toast } = useToast();
   
   const [usernameOrEmail, setUsernameOrEmail] = useState("");
@@ -38,10 +42,15 @@ export default function AdminLogin() {
   });
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated && user?.isAdmin) {
-      navigate("/admin/dashboard");
-    }
-  }, [isLoading, isAuthenticated, user, navigate]);
+    if (started.current) return;
+    started.current = true;
+    const epoch = currentAuthReadEpoch();
+    void refetch().then((result) => {
+      setFreshChecked(true);
+      if (epoch !== currentAuthReadEpoch()) return;
+      if (!result.error && adminLoginDestination(result.data ?? null)) navigate("/admin/dashboard");
+    });
+  }, [navigate, refetch]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +59,7 @@ export default function AdminLogin() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || !freshChecked) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

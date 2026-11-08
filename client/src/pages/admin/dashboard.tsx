@@ -1,11 +1,15 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { classifyDashboardFailure } from "@/lib/adminSessionRecovery";
+import { clearAuthSession } from "@/lib/authRead";
+import { ApiError } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Gamepad2, Star, Target, CreditCard, TrendingUp, Loader2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface DashboardData {
   overview: {
@@ -41,6 +45,7 @@ interface DashboardData {
 
 export default function AdminDashboard() {
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   
   useEffect(() => {
@@ -49,10 +54,27 @@ export default function AdminDashboard() {
     }
   }, [authLoading, isAuthenticated, user, navigate]);
   
-  const { data, isLoading, error } = useQuery<DashboardData>({
+  const { data, isLoading, error, refetch } = useQuery<DashboardData>({
     queryKey: ["/api/admin/dashboard"],
-    enabled: isAuthenticated && user?.isAdmin,
+    enabled: isAuthenticated && !!user?.isAdmin,
   });
+  const failure = error
+    ? classifyDashboardFailure({
+        status: error instanceof ApiError ? error.status : undefined,
+        message: error.message,
+      })
+    : null;
+
+  useEffect(() => {
+    if (failure !== "session-ended") return;
+    let cancel = false;
+    void clearAuthSession(queryClient).then(() => {
+      if (!cancel) navigate("/admin");
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [failure, navigate, queryClient]);
 
   if (authLoading || isLoading) {
     return (
@@ -62,12 +84,41 @@ export default function AdminDashboard() {
     );
   }
 
-  if (error) {
+  if (!authLoading && (!isAuthenticated || !user?.isAdmin)) return null;
+
+  if (failure === "session-ended") {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center">
+            <p data-testid="text-admin-session-ended">Your session ended. Sign in again.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (failure === "not-admin") {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center">
+            <p data-testid="text-admin-access-required">Admin access required.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (failure === "data-error") {
     return (
       <div className="flex items-center justify-center h-full">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 text-center text-destructive">
             <p>Failed to load dashboard data.</p>
+            <Button className="mt-4" variant="outline" onClick={() => { void refetch(); }} data-testid="button-retry-dashboard">
+              Try again
+            </Button>
           </CardContent>
         </Card>
       </div>
