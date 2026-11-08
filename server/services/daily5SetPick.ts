@@ -12,6 +12,7 @@ import { and, desc, eq, notInArray } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../db";
 import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
+import { isDaily5ExpansionBlocked, missingExpansionTargets } from "./baseballExpansion/registry";
 import {
   daily5CalendarConfig,
   scheduledDaily5Set,
@@ -31,8 +32,12 @@ export async function pickDaily5Set(): Promise<{ id: string; setName: string } |
     eq(gameSets.isActive, true),
     eq(gameSets.isUserCreated, false),
   ];
+  const blockedExpansion = missingExpansionTargets().map((target) => target.id);
   if (heldIds.length > 0) {
     filters.push(notInArray(gameSets.id, [...heldIds]));
+  }
+  if (blockedExpansion.length > 0) {
+    filters.push(notInArray(gameSets.id, blockedExpansion));
   }
   const [row] = await db
     .select({ id: gameSets.id, setName: gameSets.setName })
@@ -103,6 +108,7 @@ export async function resolveDaily5SetForDate(
   const usable = async (id: string): Promise<{ row: Daily5SetRow; count: number } | null> => {
     const row = await deps.describe(id);
     if (!row) { skipped.push({ id, reason: "missing" }); return null; }
+    if (isDaily5ExpansionBlocked(id)) { skipped.push({ id, reason: "expansion_not_enrolled" }); return null; }
     if (!row.isActive || row.isUserCreated) { skipped.push({ id, reason: "inactive" }); return null; }
     if (deps.isHeld(id)) { skipped.push({ id, reason: "held" }); return null; }
     const count = await deps.dealableCount(id);

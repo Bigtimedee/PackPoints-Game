@@ -24,6 +24,9 @@ import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreR
 import sharp from "sharp";
 import { heldSetReason, isDesignApprovedSetId, refreshHeldSets } from "../config/heldSets";
 import { FILL_MISSING_SETS } from "../services/setFillMissing";
+import { collidingIdentities } from "../services/baseballExpansion/identity";
+import { baseballIdentityRows } from "../services/baseballExpansion/inventory";
+import { expansionTargetById } from "../services/baseballExpansion/registry";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { recropReviewPage } from "../masking/recropReviewStatus";
 import { isRecropReviewSet, recropBlockedCard, recropPermanentlyExcluded } from "../masking/toppsRecropReview";
@@ -73,6 +76,21 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
     if (!tokenOk(req) || !config?.createIdentity || isDesignApprovedSetId(setId)) return notFound(req, res);
     const identity = config.createIdentity;
     void (async () => {
+      const target = expansionTargetById(setId);
+      if (target) {
+        const collisions = collidingIdentities(target.identity, await baseballIdentityRows(), setId);
+        if (collisions.length > 0) {
+          json(req, res, 409, {
+            setId,
+            created: false,
+            code: "existing_identity",
+            matches: collisions.map((row) => ({
+              id: row.id, isActive: row.isActive, setName: row.setName, year: row.year, brand: row.brand, cards: row.cards,
+            })),
+          });
+          return;
+        }
+      }
       const inserted = await db.insert(gameSets).values({
         id: setId,
         sport: identity.sport,

@@ -5255,3 +5255,32 @@ export const growthLifecycleEvents = pgTable("growth_lifecycle_events", {
   check("growth_lifecycle_provenance_check", sql`${table.provenance} IN ('captured', 'recovered')`),
 ]);
 export type GrowthLifecycleEvent = typeof growthLifecycleEvents.$inferSelect;
+
+/**
+ * First Design export of a baseball expansion set. Insert-once.
+ * card_ids are ids only. Player names and source URLs stay in the Design inbox.
+ */
+export const designPoolSubmissions = pgTable("design_pool_submissions", {
+  setId: varchar("set_id").primaryKey().references(() => gameSets.id),
+  slug: text("slug").notNull(),
+  originalCount: integer("original_count").notNull(),
+  manifestSha256: varchar("manifest_sha256", { length: 64 }).notNull(),
+  cardIds: jsonb("card_ids").$type<string[]>().notNull(),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("design_pool_submissions_count_nonneg", sql`${table.originalCount} >= 0`),
+]);
+
+/** Append-only set-health results. The original submission count is not rewritten. */
+export const designPoolHealthChecks = pgTable("design_pool_health_checks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  setId: varchar("set_id").notNull().references(() => designPoolSubmissions.setId),
+  originalCount: integer("original_count").notNull(),
+  passedCount: integer("passed_count").notNull(),
+  releasedCount: integer("released_count").notNull(),
+  verdict: varchar("verdict", { length: 40 }).notNull(),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_design_pool_health_set").on(table.setId, table.checkedAt),
+  check("design_pool_health_verdict_check", sql`${table.verdict} IN ('pass', 'resubmit_systemic', 'below_engineering_minimum', 'released_leak', 'incomplete')`),
+]);

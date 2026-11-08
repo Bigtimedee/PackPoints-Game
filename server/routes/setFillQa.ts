@@ -3,8 +3,11 @@
  * Same COVER_QA_TOKEN + X-QA-Token gate as the other /api/qa routes; unset,
  * blank, or a bad header is 404. A query param token is ignored.
  *
- * POST /api/qa/sets/:setId/fill-missing  { dryRun?: boolean (default true), details?: boolean,
- *   queries?: [{ set?, search?, player? }], acceptSets?: string[] } -> 202 { jobId }
+ * POST /api/qa/sets/:setId/fill-missing
+ *   {} or { dryRun: true } -> 200, no job and no supplier call.
+ *   { supplierPreview: true } -> 202 read-only job. Never inserts.
+ *   { dryRun: false, confirmImport: true } -> 202 insert job.
+ *   A null base count refuses the insert job with 409 base_count_unverified.
  * GET  /api/qa/sets/:setId/fill-missing/:jobId -> job state + report
  *
  * POST /api/qa/sets/:setId/fill-missing/prepare { cardIds: uuid[] (1-200) } -> 202 { jobId }
@@ -94,17 +97,36 @@ export function registerSetFillQaRoutes(app: Express): void {
     if ((body.queries !== undefined && !queries) || !acceptSets
       || (body.dryRun !== undefined && typeof body.dryRun !== "boolean")
       || (body.details !== undefined && typeof body.details !== "boolean")
-      || (body.adoptFromInactive !== undefined && typeof body.adoptFromInactive !== "boolean")) {
+      || (body.adoptFromInactive !== undefined && typeof body.adoptFromInactive !== "boolean")
+      || (body.supplierPreview !== undefined && typeof body.supplierPreview !== "boolean")
+      || (body.confirmImport !== undefined && typeof body.confirmImport !== "boolean")) {
       send(res, 400, { error: "dryRun/details must be boolean; queries 1-8 of {set,search,player}; acceptSets up to 8 strings" });
       return;
     }
     const setId = req.params.setId;
+    const preview = body.supplierPreview === true;
+    const confirm = body.confirmImport === true && body.dryRun === false;
+    if (preview && confirm) { send(res, 400, { error: "supplierPreview and confirmImport are separate calls" }); return; }
+    if (!preview && !confirm) {
+      send(res, 200, {
+        setId,
+        dryRun: true,
+        jobStarted: false,
+        supplierCalled: false,
+        note: "No job started. Send {\"supplierPreview\":true} for a read-only supplier report, or {\"dryRun\":false,\"confirmImport\":true} to insert.",
+      });
+      return;
+    }
+    if (confirm && FILL_MISSING_SETS[setId].baseCount == null) {
+      send(res, 409, { error: "Verified base count is not set; refusing insert", code: "base_count_unverified" });
+      return;
+    }
     if (running.has(setId)) { send(res, 409, { error: "fill already running for this set" }); return; }
     if (jobs.size >= MAX_JOBS) {
       const old = [...jobs.values()].find((j) => j.state !== "running");
       if (old) jobs.delete(old.id);
     }
-    const job: FillJob = { id: randomUUID(), setId, dryRun: body.dryRun !== false, state: "running", startedAt: new Date().toISOString() };
+    const job: FillJob = { id: randomUUID(), setId, dryRun: !confirm, state: "running", startedAt: new Date().toISOString() };
     jobs.set(job.id, job);
     running.add(setId);
     send(res, 202, { jobId: job.id, dryRun: job.dryRun, statusPath: `/api/qa/sets/${setId}/fill-missing/${job.id}` });
