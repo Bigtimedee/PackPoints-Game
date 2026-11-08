@@ -170,19 +170,12 @@ describe("fill-missing QA route", () => {
     expect((await fetch(other, { method: "POST", headers: { "X-QA-Token": TOKEN } })).status).toBe(404);
   });
 
-  it("does not start a job for a default dry run, and a supplier preview does not insert", async () => {
+  it("keeps the original dry-run job for an existing fill set", async () => {
     const url = `${base}/api/qa/sets/${DONRUSS_1987_HOLD_ID}/fill-missing`;
     const headers = { "X-QA-Token": TOKEN, "Content-Type": "application/json" };
     const bad = await fetch(url, { method: "POST", headers, body: JSON.stringify({ dryRun: "no" }) });
     expect(bad.status).toBe(400);
-    const idle = await fetch(url, { method: "POST", headers, body: JSON.stringify({}) });
-    expect(idle.status).toBe(200);
-    const idleBody = await idle.json();
-    expect(idleBody.jobStarted).toBe(false);
-    expect(idleBody.supplierCalled).toBe(false);
-    const refused = await fetch(url, { method: "POST", headers, body: JSON.stringify({ dryRun: false }) });
-    expect(refused.status).toBe(200);
-    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({ supplierPreview: true }) });
+    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({}) });
     expect(res.status).toBe(202);
     const { jobId, dryRun } = await res.json();
     expect(dryRun).toBe(true);
@@ -195,16 +188,29 @@ describe("fill-missing QA route", () => {
     expect(job.report?.inserted).toEqual([]);
   });
 
-  it("refuses an insert for a missing set until its base count is verified", async () => {
-    const { missingExpansionTargets } = await import("../services/baseballExpansion/registry");
-    const id = missingExpansionTargets()[0]!.id;
-    const res = await fetch(`${base}/api/qa/sets/${id}/fill-missing`, {
+  it("requires an explicit mode for a missing expansion set and does not echo credentials", async () => {
+    const { missingExpansionTargets, fillConfigFromTarget } = await import("../services/baseballExpansion/registry");
+    const target = missingExpansionTargets()[0]!;
+    expect(fillConfigFromTarget(target).baseCount).toBe(target.baseCount);
+    expect(fillConfigFromTarget({ ...target, baseCount: 660, baseCountProvenance: "cardhedge page count" }).baseCount).toBe(660);
+    const res = await fetch(`${base}/api/qa/sets/${target.id}/fill-missing`, {
       method: "POST",
       headers: { "X-QA-Token": TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ dryRun: false, confirmImport: true }),
+      body: JSON.stringify({}),
     });
-    expect(res.status).toBe(409);
-    expect((await res.json()).code).toBe("base_count_unverified");
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("explicit_mode_required");
+    expect(JSON.stringify(body)).not.toMatch(/CARDHEDGE|COVER_QA|api_key|BEGIN /i);
+    const preview = await fetch(`${base}/api/qa/sets/${target.id}/fill-missing`, {
+      method: "POST",
+      headers: { "X-QA-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ supplierPreview: true }),
+    });
+    expect(preview.status).toBe(202);
+    const started = await preview.json();
+    expect(started.dryRun).toBe(true);
+    expect(JSON.stringify(started)).not.toMatch(/CARDHEDGE|COVER_QA|api_key/i);
   });
 
   it("keeps expansion inventory and export off the public route", async () => {
@@ -212,16 +218,11 @@ describe("fill-missing QA route", () => {
     const id = "891b39b8-0058-5e55-9837-6e4830c55d32";
     expect((await fetch(`${base}/api/qa/baseball-expansion/${id}/export`, { method: "POST" })).status).toBe(404);
     const headers = { "X-QA-Token": TOKEN, "Content-Type": "application/json" };
-    const idle = await fetch(`${base}/api/qa/baseball-expansion/${id}/export`, { method: "POST", headers, body: "{}" });
-    expect(idle.status).toBe(200);
+    const idle = await fetch(`${base}/api/qa/baseball-expansion/${id}/export`, { method: "POST", headers, body: JSON.stringify({ directory: "/tmp/public" }) });
+    expect(idle.status).toBe(400);
     const idleBody = await idle.json();
-    expect(idleBody.jobStarted).toBe(false);
-    expect(JSON.stringify(idleBody)).not.toMatch(/sourceUrl|player/i);
-    const blocked = await fetch(`${base}/api/qa/baseball-expansion/${id}/export`, {
-      method: "POST", headers, body: JSON.stringify({ write: true }),
-    });
-    expect(blocked.status).toBe(409);
-    expect((await blocked.json()).code).toBe("inbox_unconfigured");
+    expect(idleBody.code).toBe("box_exporter_required");
+    expect(JSON.stringify(idleBody)).not.toMatch(/CARDHEDGE|COVER_QA|sourceUrl|player/i);
   });
 });
 

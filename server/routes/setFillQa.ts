@@ -21,6 +21,7 @@ import { randomUUID } from "crypto";
 import type { Express, Request, Response } from "express";
 import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
+import { isMissingExpansionId } from "../services/baseballExpansion/registry";
 import {
   FILL_MISSING_SETS,
   MAX_PREPARE_FILLED,
@@ -104,29 +105,30 @@ export function registerSetFillQaRoutes(app: Express): void {
       return;
     }
     const setId = req.params.setId;
+    const expansion = isMissingExpansionId(setId);
     const preview = body.supplierPreview === true;
     const confirm = body.confirmImport === true && body.dryRun === false;
     if (preview && confirm) { send(res, 400, { error: "supplierPreview and confirmImport are separate calls" }); return; }
-    if (!preview && !confirm) {
-      send(res, 200, {
-        setId,
-        dryRun: true,
-        jobStarted: false,
-        supplierCalled: false,
-        note: "No job started. Send {\"supplierPreview\":true} for a read-only supplier report, or {\"dryRun\":false,\"confirmImport\":true} to insert.",
-      });
-      return;
-    }
-    if (confirm && FILL_MISSING_SETS[setId].baseCount == null) {
-      send(res, 409, { error: "Verified base count is not set; refusing insert", code: "base_count_unverified" });
-      return;
+    let dryRun: boolean;
+    if (expansion) {
+      if (!preview && !confirm) {
+        send(res, 400, {
+          setId,
+          code: "explicit_mode_required",
+          error: "This held set requires {\"supplierPreview\":true} or {\"dryRun\":false,\"confirmImport\":true}. Existing fill sets still accept dryRun.",
+        });
+        return;
+      }
+      dryRun = !confirm;
+    } else {
+      dryRun = body.dryRun !== false;
     }
     if (running.has(setId)) { send(res, 409, { error: "fill already running for this set" }); return; }
     if (jobs.size >= MAX_JOBS) {
       const old = [...jobs.values()].find((j) => j.state !== "running");
       if (old) jobs.delete(old.id);
     }
-    const job: FillJob = { id: randomUUID(), setId, dryRun: !confirm, state: "running", startedAt: new Date().toISOString() };
+    const job: FillJob = { id: randomUUID(), setId, dryRun, state: "running", startedAt: new Date().toISOString() };
     jobs.set(job.id, job);
     running.add(setId);
     send(res, 202, { jobId: job.id, dryRun: job.dryRun, statusPath: `/api/qa/sets/${setId}/fill-missing/${job.id}` });

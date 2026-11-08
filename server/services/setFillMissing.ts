@@ -26,8 +26,10 @@ import { classifyCard } from "./cardClassifier";
 import { cardDetails, cardSearch, normalizeImageUrl, type CardHedgeCard } from "./cardhedge/client";
 
 export interface FillMissingSetConfig {
-  /** Base-set card numbers run 1..baseCount. Null blocks inserts until a verified count is set in code. */
+  /** Base-set card numbers run 1..baseCount. Null means no number cap yet. */
   baseCount: number | null;
+  /** Provenance for baseCount. Not a secret and not a clearance. */
+  baseCountProvenance?: string | null;
   /** Player text that must never be imported into this set (lowercase regex). */
   playerDenylist: { pattern: RegExp; reason: string }[];
   /** A player that may only land on these base numbers (Card Hedge files insert rows as Base). */
@@ -145,6 +147,8 @@ export interface FillMissingReport {
   setId: string;
   dryRun: boolean;
   canonicalSet: string | null;
+  baseCount: number | null;
+  baseCountProvenance: string | null;
   queries: FillQuery[];
   existing: { rows: number; baseNumbers: number };
   fetched: number;
@@ -393,10 +397,11 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
 
   const report: FillMissingReport = {
     setId, dryRun: opts.dryRun, canonicalSet, queries,
+    baseCount: config.baseCount, baseCountProvenance: config.baseCountProvenance ?? null,
     existing: { rows: existingRows.length, baseNumbers: haveNumbers.size },
     fetched, distinctFetched: byId.size, setsSeen, variantsSeen, skipped, excluded,
     detailsLookups, detailsImagesFound, candidates, inserted: [], insertConflicts: 0,
-    missingNumbers, insertBlocked: truncated ? "supplier_page_cap" : config.baseCount == null ? "base_count_unverified" : null,
+    missingNumbers, insertBlocked: truncated ? "supplier_page_cap" : null,
     truncated, pagesFetched, existingFlagged, conflictOwners: [], adopted: [], totalRowsAfter: null, importRunId: null,
   };
   const owned = candidates.length === 0 ? [] : (await db.execute<{ id: string; cardhedge_card_id: string; game_set_id: string;

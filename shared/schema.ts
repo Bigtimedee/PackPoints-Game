@@ -2106,15 +2106,23 @@ export const gameSets = pgTable("game_sets", {
   coCreatorUserId: varchar("co_creator_user_id").references(() => users.id),
   makerNote: text("maker_note"),
   isUserCreated: boolean("is_user_created").notNull().default(false),
+  /**
+   * baseball|year|brand|product for integrated rows. Null on existing and
+   * user-created rows, so boot push does not collide with historical data.
+   * Multiple nulls are allowed. New integrated inserts set it under a lock.
+   */
+  canonicalIdentity: text("canonical_identity"),
 }, (table) => [
   index("idx_game_sets_active").on(table.isActive),
   index("idx_game_sets_sport_year").on(table.sport, table.year),
   index("idx_game_sets_user_created").on(table.isUserCreated),
+  uniqueIndex("uq_game_sets_canonical_identity").on(table.canonicalIdentity).where(sql`${table.canonicalIdentity} IS NOT NULL`),
 ]);
 
 export const insertGameSetSchema = createInsertSchema(gameSets).omit({
   id: true,
   createdAt: true,
+  canonicalIdentity: true,
 });
 
 export const updateGameSetSchema = z.object({
@@ -5257,8 +5265,9 @@ export const growthLifecycleEvents = pgTable("growth_lifecycle_events", {
 export type GrowthLifecycleEvent = typeof growthLifecycleEvents.$inferSelect;
 
 /**
- * First Design export of a baseball expansion set. Insert-once.
- * card_ids are ids only. Player names and source URLs stay in the Design inbox.
+ * Immutable original submitted card-id membership for a later full-pool GREEN.
+ * Not required for held prep. Player names and source URLs are not stored.
+ * manifest_sha256 is the hash of the sorted id list, not a count.
  */
 export const designPoolSubmissions = pgTable("design_pool_submissions", {
   setId: varchar("set_id").primaryKey().references(() => gameSets.id),
@@ -5266,21 +5275,9 @@ export const designPoolSubmissions = pgTable("design_pool_submissions", {
   originalCount: integer("original_count").notNull(),
   manifestSha256: varchar("manifest_sha256", { length: 64 }).notNull(),
   cardIds: jsonb("card_ids").$type<string[]>().notNull(),
+  maskVersion: text("mask_version").notNull(),
+  sourceWitness: varchar("source_witness", { length: 64 }).notNull(),
   submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("design_pool_submissions_count_nonneg", sql`${table.originalCount} >= 0`),
-]);
-
-/** Append-only set-health results. The original submission count is not rewritten. */
-export const designPoolHealthChecks = pgTable("design_pool_health_checks", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  setId: varchar("set_id").notNull().references(() => designPoolSubmissions.setId),
-  originalCount: integer("original_count").notNull(),
-  passedCount: integer("passed_count").notNull(),
-  releasedCount: integer("released_count").notNull(),
-  verdict: varchar("verdict", { length: 40 }).notNull(),
-  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_design_pool_health_set").on(table.setId, table.checkedAt),
-  check("design_pool_health_verdict_check", sql`${table.verdict} IN ('pass', 'resubmit_systemic', 'below_engineering_minimum', 'released_leak', 'incomplete')`),
 ]);

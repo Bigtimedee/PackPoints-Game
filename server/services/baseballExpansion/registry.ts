@@ -25,10 +25,12 @@ export interface ExpansionTarget {
   role: "live" | "missing";
   identity: ExpansionIdentity;
   /**
-   * Verified base-run length. Null means CardHedge number filtering cannot
-   * insert yet. Do not fill this from memory.
+   * Verified base-run length. Null means no number cap yet. Discovery import
+   * may still run. Release stays closed until this is a verified count.
    */
   baseCount: number | null;
+  /** Where baseCount came from. Null until a verified follow-up sets it. */
+  baseCountProvenance: string | null;
 }
 
 const live = (
@@ -41,8 +43,9 @@ const live = (
   slug,
   id,
   role: "live",
-  baseCount,
-  identity: {
+    baseCount,
+    baseCountProvenance: baseCount == null ? null : "registry",
+    identity: {
     sport: "baseball",
     brand,
     year,
@@ -115,25 +118,24 @@ export const EXPANSION_PLAYER_DENYLIST: { pattern: RegExp; reason: string }[] = 
   { pattern: /\b(auto|autograph|signed|psa|bgs|sgc|relic|patch)\b/i, reason: "auto_slab_relic" },
 ];
 
-export function expansionFillConfigs(): Record<string, {
+export function fillConfigFromTarget(target: ExpansionTarget): {
   baseCount: number | null;
+  baseCountProvenance: string | null;
   playerDenylist: { pattern: RegExp; reason: string }[];
   canonicalSet: string;
   createIdentity: ExpansionIdentity;
-}> {
-  const out: Record<string, {
-    baseCount: number | null;
-    playerDenylist: { pattern: RegExp; reason: string }[];
-    canonicalSet: string;
-    createIdentity: ExpansionIdentity;
-  }> = {};
-  for (const target of missingExpansionTargets()) {
-    out[target.id] = {
-      baseCount: null,
-      playerDenylist: EXPANSION_PLAYER_DENYLIST,
-      canonicalSet: target.identity.setName,
-      createIdentity: target.identity,
-    };
-  }
+} {
+  return {
+    baseCount: target.baseCount,
+    baseCountProvenance: target.baseCountProvenance,
+    playerDenylist: EXPANSION_PLAYER_DENYLIST,
+    canonicalSet: target.identity.setName,
+    createIdentity: target.identity,
+  };
+}
+
+export function expansionFillConfigs(): Record<string, ReturnType<typeof fillConfigFromTarget>> {
+  const out: Record<string, ReturnType<typeof fillConfigFromTarget>> = {};
+  for (const target of missingExpansionTargets()) out[target.id] = fillConfigFromTarget(target);
   return out;
 }

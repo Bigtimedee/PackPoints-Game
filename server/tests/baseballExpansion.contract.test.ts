@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { TOPPS_1988_PROFILE_ID, TOPPS_1988_REGIONS, TOPPS_1988_SET_ID } from "../masking/topps1988Geometry";
 import { getMaskProfile, profileIsRegistered } from "../masking/maskProfiles";
 import { replaceLifecycleRegistry } from "../services/setLifecycleRegistry";
-import { collidingIdentities } from "../services/baseballExpansion/identity";
+import { canonicalMembership, canonicalSetKey, collidingIdentities, membershipMatches } from "../services/baseballExpansion/identity";
 import { exportDesignSet } from "../services/baseballExpansion/exportSet";
 import {
   ENGINEERING_SET_MINIMUM,
@@ -118,15 +118,9 @@ describe("original pool health", () => {
     expect(leak.verdict).toBe("released_leak");
     expect(approvalHealthBlock(true, { originalCount: 20, passedCount: 18, releasedCount: 18, verdict: "resubmit_systemic" })?.code).toBe("pool_health");
     expect(approvalHealthBlock(true, { originalCount: 20, passedCount: 19, releasedCount: 19, verdict: "pass" })).toBeNull();
-    const denied = designApprovalDecision({ isExpansion: true, profileId: null, health: null });
+    const denied = designApprovalDecision({ isExpansion: true, profileId: "measured", health: { originalCount: 20, passedCount: 20, releasedCount: 20, verdict: "pass" } });
     expect(denied.ok).toBe(false);
-    if (!denied.ok) expect(denied.code).toBe("no_mask_profile");
-    const allowed = designApprovalDecision({
-      isExpansion: true,
-      profileId: "measured",
-      health: { originalCount: 20, passedCount: 19, releasedCount: 19, verdict: "pass" },
-    });
-    expect(allowed.ok).toBe(true);
+    if (!denied.ok) expect(denied.code).toBe("held_prep_only");
   });
 
   it("matches the public set minimum and fails a short or unchecked source", () => {
@@ -144,24 +138,53 @@ describe("original pool health", () => {
   });
 });
 
-describe("inactive identity", () => {
-  it("blocks a proposed id when an inactive row already owns the name", () => {
-    const target = missingExpansionTargets().find((row) => row.slug === "1986-fleer-baseball")!;
-    const hits = collidingIdentities(target.identity, [{
-      id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-      sport: "baseball",
-      year: 1986,
-      brand: "Fleer",
-      setName: "1986 Fleer",
-      isActive: false,
-      isUserCreated: false,
-      cards: 12,
-    }], target.id);
-    expect(hits.map((row) => row.id)).toEqual(["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
-    expect(collidingIdentities(target.identity, [{
-      id: target.id, sport: "baseball", year: 1986, brand: "Fleer", setName: target.identity.setName,
-      isActive: false, isUserCreated: false, cards: 1,
-    }], target.id)).toEqual([]);
+describe("canonical identity", () => {
+  const row = (over: Partial<{ sport: string; brand: string; setName: string; year: number; isActive: boolean }>) => ({
+    id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    sport: "baseball",
+    year: 1986,
+    brand: "Fleer",
+    setName: "1986 Fleer Baseball",
+    isActive: false,
+    isUserCreated: false,
+    cards: 1,
+    ...over,
+  });
+  const fleer = missingExpansionTargets().find((item) => item.slug === "1986-fleer-baseball")!;
+  const topps = missingExpansionTargets().find((item) => item.slug === "1990-topps-baseball")!;
+  const ud = missingExpansionTargets().find((item) => item.slug === "1989-upper-deck-baseball")!;
+
+  it("matches mixed case, hyphens, reorder, and Upper Deck aliases, including inactive rows", () => {
+    expect(canonicalSetKey({ sport: "Baseball", year: 1986, brand: "FLEER", setName: "Fleer 1986" }))
+      .toBe(canonicalSetKey(fleer.identity));
+    expect(canonicalSetKey({ sport: "mlb", year: 1986, brand: "fleer", setName: "1986-Fleer-Baseball" }))
+      .toBe(canonicalSetKey(fleer.identity));
+    expect(canonicalSetKey({ sport: "baseball", year: 1989, brand: "UpperDeck", setName: "1989 UD" }))
+      .toBe(canonicalSetKey(ud.identity));
+    expect(canonicalSetKey({ sport: "baseball", year: 1989, brand: "Upper-Deck", setName: "Upper Deck Baseball 1989" }))
+      .toBe(canonicalSetKey(ud.identity));
+    expect(collidingIdentities(fleer.identity, [row({ sport: "Baseball", brand: "fleer", setName: "1986 Fleer", isActive: false })], fleer.id))
+      .toHaveLength(1);
+  });
+
+  it("does not collide a distinct Topps product or a same-id row", () => {
+    expect(canonicalSetKey({ sport: "baseball", year: 1990, brand: "Topps", setName: "1990 Topps Traded" }))
+      .not.toBe(canonicalSetKey(topps.identity));
+    expect(collidingIdentities(topps.identity, [row({ year: 1990, brand: "Topps", setName: "1990 Topps Traded Baseball" })], topps.id))
+      .toEqual([]);
+    expect(collidingIdentities(topps.identity, [row({ year: 1990, brand: "Topps", setName: "1990 Topps Tiffany" })], topps.id))
+      .toEqual([]);
+    expect(collidingIdentities(fleer.identity, [{ ...row({}), id: fleer.id }], fleer.id)).toEqual([]);
+  });
+
+  it("rejects a same-size substitution of the original id list", () => {
+    const left = canonicalMembership(["b", "a", "a"]);
+    const right = canonicalMembership(["a", "c"]);
+    expect(left.count).toBe(2);
+    expect(left.hash).not.toBe(right.hash);
+    expect(membershipMatches(left, { ids: ["a", "b"], hash: left.hash })).toBe(true);
+    expect(membershipMatches({ ids: ["a", "b"], hash: left.hash }, { ids: ["a", "c"], hash: canonicalMembership(["a", "c"]).hash })).toBe(false);
+    expect(canonicalMembership(["a", "b"]).count).toBe(canonicalMembership(["b", "c"]).count);
   });
 });
 
@@ -198,8 +221,8 @@ describe("design export", () => {
       directory,
     });
     expect(first.ready).toBe(false);
-    expect(first.health.verdict).toBe("incomplete");
     expect(existsSync(path.join(directory, "READY"))).toBe(false);
+    expect(existsSync(path.join(directory, "REVIEW_READY"))).toBe(false);
     expect(JSON.parse(readFileSync(path.join(directory, "profile.json"), "utf8")).explicit).toBe(false);
     expect(JSON.parse(readFileSync(path.join(directory, "covers", "NOT_DAILY5.json"), "utf8")).dealDaily5).toBe(false);
     const second = await exportDesignSet({
@@ -209,6 +232,9 @@ describe("design export", () => {
       directory,
     });
     expect(second.ready).toBe(true);
+    const marker = JSON.parse(readFileSync(path.join(directory, "REVIEW_READY"), "utf8"));
+    expect(marker.releaseApproval).toBe(false);
+    expect(marker.reviewReady).toBe(true);
     expect(second.originalCount).toBe(20);
     expect(existsSync(path.join(directory, "source", `${cards[0]!.heldId}.jpg`))).toBe(true);
     expect(existsSync(path.join(directory, "masked", `${cards[0]!.heldId}.jpg`))).toBe(true);

@@ -6,7 +6,6 @@ import { invalidateMaskReadySidecars } from "../masking/maskReadySidecar";
 import { invalidatePublicMaskSetCache } from "../services/publicMaskGate";
 import {
   cardhedgeImportRuns,
-  designPoolHealthChecks,
   designPoolSubmissions,
   cardImageReports,
   collaborationSessions,
@@ -60,7 +59,6 @@ export async function hardDeleteGameSet(id: string): Promise<boolean> {
     }
 
     await tx.delete(playableCards).where(eq(playableCards.gameSetId, id));
-    await tx.delete(designPoolHealthChecks).where(eq(designPoolHealthChecks.setId, id));
     await tx.delete(designPoolSubmissions).where(eq(designPoolSubmissions.setId, id));
     await tx.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, id));
     await tx.delete(userActiveSets).where(eq(userActiveSets.gameSetId, id));

@@ -162,12 +162,17 @@ export function approvalHealthBlock(
 export function designApprovalDecision(input: {
   isExpansion: boolean;
   profileId: string | null;
-  health: StoredHealth | null;
+  health?: StoredHealth | null;
 }): { ok: true } | { ok: false; code: string; error: string } {
+  if (input.isExpansion) {
+    return {
+      ok: false,
+      code: "held_prep_only",
+      error: "Held prep cannot record Design GREEN. A full-pool release is a separate gate.",
+    };
+  }
   if (!input.profileId) {
     return { ok: false, code: "no_mask_profile", error: "No registered mask profile for this set; Design cannot approve it yet" };
   }
-  const block = approvalHealthBlock(input.isExpansion, input.health);
-  if (block) return { ok: false, code: block.code, error: block.error };
   return { ok: true };
 }

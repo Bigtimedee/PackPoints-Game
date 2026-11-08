@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, gte, lte, sql } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../../db";
 import { collidingIdentities, type IdentityRow } from "./identity";
@@ -16,7 +16,11 @@ export async function baseballIdentityRows(): Promise<IdentityRow[]> {
       isUserCreated: gameSets.isUserCreated,
     })
     .from(gameSets)
-    .where(and(eq(gameSets.sport, "baseball"), gte(gameSets.year, 1986), lte(gameSets.year, 1991)));
+    .where(and(
+      gte(gameSets.year, 1986),
+      lte(gameSets.year, 1991),
+      sql`lower(${gameSets.sport}) in ('baseball', 'mlb')`,
+    ));
   const ids = sets.map((row) => row.id);
   const counts = new Map<string, number>();
   if (ids.length > 0) {

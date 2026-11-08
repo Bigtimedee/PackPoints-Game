@@ -17,16 +17,13 @@
  */
 import type { Express, Request, Response } from "express";
 import { sql } from "drizzle-orm";
-import { gameSets } from "@shared/schema";
 import { db } from "../db";
 import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import sharp from "sharp";
 import { heldSetReason, isDesignApprovedSetId, refreshHeldSets } from "../config/heldSets";
 import { FILL_MISSING_SETS } from "../services/setFillMissing";
-import { collidingIdentities } from "../services/baseballExpansion/identity";
-import { baseballIdentityRows } from "../services/baseballExpansion/inventory";
-import { expansionTargetById } from "../services/baseballExpansion/registry";
+import { insertIntegratedGameSet } from "../services/baseballExpansion/createIntegratedSet";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { recropReviewPage } from "../masking/recropReviewStatus";
 import { isRecropReviewSet, recropBlockedCard, recropPermanentlyExcluded } from "../masking/toppsRecropReview";
@@ -76,22 +73,7 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
     if (!tokenOk(req) || !config?.createIdentity || isDesignApprovedSetId(setId)) return notFound(req, res);
     const identity = config.createIdentity;
     void (async () => {
-      const target = expansionTargetById(setId);
-      if (target) {
-        const collisions = collidingIdentities(target.identity, await baseballIdentityRows(), setId);
-        if (collisions.length > 0) {
-          json(req, res, 409, {
-            setId,
-            created: false,
-            code: "existing_identity",
-            matches: collisions.map((row) => ({
-              id: row.id, isActive: row.isActive, setName: row.setName, year: row.year, brand: row.brand, cards: row.cards,
-            })),
-          });
-          return;
-        }
-      }
-      const inserted = await db.insert(gameSets).values({
+      const inserted = await insertIntegratedGameSet({
         id: setId,
         sport: identity.sport,
         brand: identity.brand,
@@ -101,9 +83,13 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
         cardhedgeCategory: identity.cardhedgeCategory,
         marketplaceKeywords: [],
         isActive: true,
-      }).onConflictDoNothing({ target: gameSets.id }).returning({ id: gameSets.id });
+      });
+      if (!inserted.created && inserted.code === "existing_identity") {
+        json(req, res, 409, { setId, created: false, code: "existing_identity", matches: inserted.matches });
+        return;
+      }
       await refreshHeldSets();
-      json(req, res, 200, { setId, created: inserted.length > 0, holdReason: heldSetReason(setId) });
+      json(req, res, 200, { setId, created: inserted.created, holdReason: heldSetReason(setId) });
     })().catch(() => { if (!res.headersSent) json(req, res, 500, { error: "create failed" }); });
   });
 
@@ -125,9 +111,9 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
     void (async () => {
       const total = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM playable_cards WHERE game_set_id = ${setId}`);
       const rows = await db.execute<{ id: string; number: string | null; player: string | null; variant: string | null; set: string | null;
-        is_playable: boolean; blocked_reason: string | null; has_image: boolean; approved: boolean }>(sql`
+        is_playable: boolean; blocked_reason: string | null; has_image: boolean; image_url: string | null; approved: boolean }>(sql`
         SELECT pc.id, pc.number, pc.player, pc.variant, pc.set, pc.is_playable, pc.blocked_reason,
-          (pc.image_url LIKE 'https://%') AS has_image,
+          (pc.image_url LIKE 'https://%') AS has_image, pc.image_url,
           EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = pc.id) AS approved
         FROM playable_cards pc WHERE pc.game_set_id = ${setId}
         ORDER BY NULLIF(regexp_replace(coalesce(pc.number, ''), '[^0-9]', '', 'g'), '')::int NULLS LAST, pc.id
@@ -141,6 +127,7 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
         cards: (rows.rows ?? []).map((r) => ({
           cardId: r.id, number: r.number, player: r.player, variant: r.variant, set: r.set,
           isPlayable: Boolean(r.is_playable), blockedReason: r.blocked_reason, hasImage: Boolean(r.has_image),
+          imageUrl: r.image_url && r.image_url.startsWith("https://") ? r.image_url : null,
           approved: Boolean(r.approved),
           sourcePath: `/api/qa/sets/${setId}/source/${r.id}`,
           maskedPath: `/api/qa/cover-image/${r.id}`,

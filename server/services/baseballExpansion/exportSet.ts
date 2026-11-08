@@ -3,9 +3,9 @@
  * passes. Player names and source URLs stay in that directory. This module
  * does not pin covers, deal Daily 5, or approve a set.
  *
- * READY is written last, and only when the explicit profile, the 1:1 files,
- * and the original-pool health gate all succeed. A later smaller export does
- * not replace the original submitted manifest.
+ * REVIEW_READY means the review packet is complete. It is not a release.
+ * Source-only mode writes discovery files and does not write REVIEW_READY.
+ * A later smaller export does not replace the original submitted manifest.
  */
 import { createHash } from "crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "fs";
@@ -99,6 +99,8 @@ export async function exportDesignSet(input: {
   profile: ExportProfile;
   cards: ExportCardInput[];
   directory: string;
+  /** source = discovery files only. review = may write REVIEW_READY. Never a release. */
+  mode?: "source" | "review";
   engineeringMinimum?: number;
 }): Promise<ExportResult> {
   const directory = input.directory;
@@ -107,6 +109,7 @@ export async function exportDesignSet(input: {
   mkdirSync(path.join(directory, "masked-300"), { recursive: true });
   mkdirSync(path.join(directory, "covers"), { recursive: true });
   if (existsSync(path.join(directory, READY))) rmSync(path.join(directory, READY));
+  if (existsSync(path.join(directory, "REVIEW_READY"))) rmSync(path.join(directory, "REVIEW_READY"));
 
   const manifestPath = path.join(directory, MANIFEST);
   let originalIds: string[];
@@ -185,12 +188,6 @@ export async function exportDesignSet(input: {
   const profile = input.profile.explicit && input.profile.regions && input.profile.regions.length > 0 && input.profile.side
     ? input.profile
     : { explicit: false, profileId: null, side: null, regions: null };
-  if (!profile.explicit && health.verdict === "pass") {
-    health.verdict = "incomplete";
-    health.releaseAuthorized = false;
-    health.releasedCount = 0;
-    health.releasedPassCount = 0;
-  }
   const filesComplete = originalIds.every((id) => {
     const card = byId.get(id);
     return Boolean(card?.sourceJpeg?.length) && Boolean(card?.maskedJpeg?.length)
@@ -198,7 +195,8 @@ export async function exportDesignSet(input: {
       && existsSync(path.join(directory, "masked", `${id}.jpg`))
       && existsSync(path.join(directory, "masked-300", `${id}.jpg`));
   });
-  const ready = health.releaseAuthorized && profile.explicit && filesComplete && health.originalCount === originalIds.length;
+  const paired = filesComplete && profile.explicit && health.originalCount === originalIds.length && originalIds.length > 0;
+  const reviewReady = input.mode !== "source" && paired;
 
   writeFileSync(path.join(directory, "profile.json"), JSON.stringify({
     setId: input.target.id,
@@ -213,7 +211,7 @@ export async function exportDesignSet(input: {
     regions: profile.regions,
   }, null, 2) + "\n");
 
-  const coverIds = ready
+  const coverIds = reviewReady
     ? poolCards.filter((card) => card.proposedCover && (measured.get(card.heldId)?.reasons.length ?? 1) === 0).map((card) => card.heldId)
     : [];
   for (const id of coverIds) {
@@ -244,7 +242,8 @@ export async function exportDesignSet(input: {
     engineeringMinimum: health.engineeringMinimum ?? ENGINEERING_SET_MINIMUM,
     verdict: health.verdict,
     cherryPickAllowed: false,
-    releaseAuthorized: health.releaseAuthorized,
+    releaseAuthorized: false,
+    reviewReady,
     profileExplicit: profile.explicit,
     filesComplete,
     sourceFiles,
@@ -256,12 +255,15 @@ export async function exportDesignSet(input: {
     pinnedCovers: false,
   };
   writeFileSync(path.join(directory, "reconciliation.json"), JSON.stringify(reconciliation, null, 2) + "\n");
-  if (ready) {
-    writeFileSync(path.join(directory, READY), JSON.stringify({
+  if (existsSync(path.join(directory, READY))) rmSync(path.join(directory, READY));
+  if (reviewReady) {
+    writeFileSync(path.join(directory, "REVIEW_READY"), JSON.stringify({
       setId: input.target.id,
       slug: input.target.slug,
       originalCount: health.originalCount,
-      releasedCount: health.releasedCount,
+      reviewReady: true,
+      releaseApproval: false,
+      designCleared: false,
       manifestSha256: manifestSha,
     }) + "\n");
   }
@@ -271,7 +273,7 @@ export async function exportDesignSet(input: {
     originalCount: health.originalCount,
     originalCardIds: originalIds,
     health,
-    ready,
+    ready: reviewReady,
     profileExplicit: profile.explicit,
     reconciliation,
   };
