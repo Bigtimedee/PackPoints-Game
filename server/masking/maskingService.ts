@@ -6,7 +6,8 @@ import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@sha
 import { and, eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { applyServedRotation, orientationOcrBudgetMs, uprightCardImage } from "./cardOrientation";
-import { getMaskProfile, hoopsBottomBakeIsStale, HOOPS_1990_PROFILE_ID, logDealtDefaultMaskProfiles } from "./maskProfiles";
+import { isMissingExpansionId } from "../services/baseballExpansion/registry";
+import { getMaskProfile, hoopsBottomBakeIsStale, HOOPS_1990_PROFILE_ID, logDealtDefaultMaskProfiles, profileIsRegistered } from "./maskProfiles";
 import { recognizeWords, resetOcrRuntimeForTests } from "./ocrRuntime";
 import {
   clearOrientNote,
@@ -632,6 +633,13 @@ export async function bakeMaskedCardFromUrl(
   priority: "live" | "warm" = "live",
 ): Promise<string | null> {
   const { cardId, imageUrl } = input;
+  if (input.gameSetId && isMissingExpansionId(input.gameSetId)) {
+    const profile = getMaskProfile(input.setHint, input.gameSetId);
+    if (!profileIsRegistered(profile, input.gameSetId)) {
+      coverageRefusals.set(cardId, "unprofiled_expansion_set");
+      return null;
+    }
+  }
   if (recropPermanentlyExcluded(cardId)) return null;
   const alreadyRefused = readMaskFailureReason(cardId);
   if (alreadyRefused) {

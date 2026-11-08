@@ -3,8 +3,12 @@
  * Same COVER_QA_TOKEN + X-QA-Token gate as the other /api/qa routes; unset,
  * blank, or a bad header is 404. A query param token is ignored.
  *
- * POST /api/qa/sets/:setId/fill-missing  { dryRun?: boolean (default true), details?: boolean,
- *   queries?: [{ set?, search?, player? }], acceptSets?: string[] } -> 202 { jobId }
+ * POST /api/qa/sets/:setId/fill-missing
+ *   {} or { dryRun: true } -> 202 dry-run job for an existing fill set.
+ *   Expansion ids reject {} with 400 explicit_mode_required.
+ *   { supplierPreview: true } -> 202 read-only job. Never inserts.
+ *   { dryRun: false, confirmImport: true } -> 202 insert job.
+ *   A null base count is held_discovery. It is not a refusal.
  * GET  /api/qa/sets/:setId/fill-missing/:jobId -> job state + report
  *
  * POST /api/qa/sets/:setId/fill-missing/prepare { cardIds: uuid[] (1-200) } -> 202 { jobId }
@@ -18,6 +22,7 @@ import { randomUUID } from "crypto";
 import type { Express, Request, Response } from "express";
 import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
+import { isMissingExpansionId } from "../services/baseballExpansion/registry";
 import {
   FILL_MISSING_SETS,
   MAX_PREPARE_FILLED,
@@ -94,17 +99,37 @@ export function registerSetFillQaRoutes(app: Express): void {
     if ((body.queries !== undefined && !queries) || !acceptSets
       || (body.dryRun !== undefined && typeof body.dryRun !== "boolean")
       || (body.details !== undefined && typeof body.details !== "boolean")
-      || (body.adoptFromInactive !== undefined && typeof body.adoptFromInactive !== "boolean")) {
+      || (body.adoptFromInactive !== undefined && typeof body.adoptFromInactive !== "boolean")
+      || (body.supplierPreview !== undefined && typeof body.supplierPreview !== "boolean")
+      || (body.confirmImport !== undefined && typeof body.confirmImport !== "boolean")) {
       send(res, 400, { error: "dryRun/details must be boolean; queries 1-8 of {set,search,player}; acceptSets up to 8 strings" });
       return;
     }
     const setId = req.params.setId;
+    const expansion = isMissingExpansionId(setId);
+    const preview = body.supplierPreview === true;
+    const confirm = body.confirmImport === true && body.dryRun === false;
+    if (preview && confirm) { send(res, 400, { error: "supplierPreview and confirmImport are separate calls" }); return; }
+    let dryRun: boolean;
+    if (expansion) {
+      if (!preview && !confirm) {
+        send(res, 400, {
+          setId,
+          code: "explicit_mode_required",
+          error: "This held set requires {\"supplierPreview\":true} or {\"dryRun\":false,\"confirmImport\":true}. Existing fill sets still accept dryRun.",
+        });
+        return;
+      }
+      dryRun = !confirm;
+    } else {
+      dryRun = body.dryRun !== false;
+    }
     if (running.has(setId)) { send(res, 409, { error: "fill already running for this set" }); return; }
     if (jobs.size >= MAX_JOBS) {
       const old = [...jobs.values()].find((j) => j.state !== "running");
       if (old) jobs.delete(old.id);
     }
-    const job: FillJob = { id: randomUUID(), setId, dryRun: body.dryRun !== false, state: "running", startedAt: new Date().toISOString() };
+    const job: FillJob = { id: randomUUID(), setId, dryRun, state: "running", startedAt: new Date().toISOString() };
     jobs.set(job.id, job);
     running.add(setId);
     send(res, 202, { jobId: job.id, dryRun: job.dryRun, statusPath: `/api/qa/sets/${setId}/fill-missing/${job.id}` });

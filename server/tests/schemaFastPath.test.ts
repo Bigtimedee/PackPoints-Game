@@ -132,6 +132,16 @@ describe("fast schema gate", () => {
     expect(logged).toContain("missing_unique:users_email_unique");
   });
 
+  it("does not open routes when the foreground push does not apply", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(runSchemaGate({
+      currentHash: "new",
+      storedHash: "old",
+      verify: async () => ({ ok: true, reason: "" }),
+      push: async () => ({ pushed: false }),
+    })).rejects.toThrow(/schema_not_ready/);
+  });
+
   it("falls back without probing when the schema hash differs", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     let probed = false;

@@ -21,12 +21,15 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { cardhedgeImportRuns, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { DONRUSS_1987_HOLD_ID } from "../config/heldSets";
+import { expansionFillConfigs } from "./baseballExpansion/registry";
 import { classifyCard } from "./cardClassifier";
 import { cardDetails, cardSearch, normalizeImageUrl, type CardHedgeCard } from "./cardhedge/client";
 
 export interface FillMissingSetConfig {
-  /** Base-set card numbers run 1..baseCount. */
-  baseCount: number;
+  /** Base-set card numbers run 1..baseCount. Null means no number cap yet. */
+  baseCount: number | null;
+  /** Provenance for baseCount. Not a secret and not a clearance. */
+  baseCountProvenance?: string | null;
   /** Player text that must never be imported into this set (lowercase regex). */
   playerDenylist: { pattern: RegExp; reason: string }[];
   /** A player that may only land on these base numbers (Card Hedge files insert rows as Base). */
@@ -48,6 +51,7 @@ export const TOPPS_1986_BASEBALL_HOLD_ID = "2b77043a-6583-4d79-b59d-d2ab20291a17
 const range = (a: number, b: number): number[] => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
 export const FILL_MISSING_SETS: Record<string, FillMissingSetConfig> = {
+  ...expansionFillConfigs(),
   [DONRUSS_1987_HOLD_ID]: {
     baseCount: 660,
     playerDenylist: [
@@ -143,6 +147,10 @@ export interface FillMissingReport {
   setId: string;
   dryRun: boolean;
   canonicalSet: string | null;
+  baseCount: number | null;
+  baseCountProvenance: string | null;
+  /** held_discovery has no number cap. verified_cap refuses numbers above baseCount. */
+  importMode: "held_discovery" | "verified_cap";
   queries: FillQuery[];
   existing: { rows: number; baseNumbers: number };
   fetched: number;
@@ -157,6 +165,9 @@ export interface FillMissingReport {
   inserted: { id: string; cardhedgeCardId: string; number: string | null; player: string | null }[];
   insertConflicts: number;
   missingNumbers: number[];
+  insertBlocked: string | null;
+  truncated: boolean;
+  pagesFetched: number;
   existingFlagged: { id: string; number: string | null; player: string | null; reason: string }[];
   conflictOwners: ConflictOwner[];
   adopted: { id: string; cardhedgeCardId: string; number: string | null; player: string | null; fromSetId: string }[];
@@ -212,7 +223,8 @@ export function fillExclusionReason(
     && !(ctx.acceptSets ?? []).some((name) => normSet(name) === normSet(card.set))) return "off_set";
   if (!isBaseVariant(card.variant)) return "not_base";
   const n = normalizeBaseNumber(card.number);
-  if (n == null || n < 1 || n > ctx.config.baseCount) return "bad_number";
+  if (n == null || n < 1) return "bad_number";
+  if (ctx.config.baseCount != null && n > ctx.config.baseCount) return "bad_number";
   if (!card.player || !card.player.trim()) return "no_player";
   const cls = classifyCard({ player: card.player, description: card.description });
   if (!cls.isPlayable) return `classifier_${cls.blockedReason || "rejected"}`;
@@ -295,6 +307,8 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
   const queries: FillQuery[] = opts.queries ?? [{ set: gameSet.cardhedgeSetQuery }];
   const byId = new Map<string, CardHedgeCard>();
   let fetched = 0;
+  let pagesFetched = 0;
+  let truncated = false;
   for (const q of queries) {
     for (let page = 1; page <= MAX_PAGES; page++) {
       // Same request shape as the admin import: only the keys that are set.
@@ -308,13 +322,15 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
       });
       const cards = result.cards || [];
       fetched += cards.length;
+      pagesFetched += 1;
       for (const card of cards) {
         if (!card.card_id) continue;
         const prior = byId.get(card.card_id);
         if (!prior || (!normalizeImageUrl(prior.image) && normalizeImageUrl(card.image))) byId.set(card.card_id, card);
       }
       const pages = result.pages ?? (cards.length === PAGE_SIZE ? page + 1 : page);
-      if (cards.length === 0 || page >= pages) break;
+      if (page >= MAX_PAGES && cards.length === PAGE_SIZE && page < pages) truncated = true;
+      if (cards.length === 0 || page >= pages || page >= MAX_PAGES) break;
       await new Promise((r) => setTimeout(r, 150));
     }
   }
@@ -367,19 +383,29 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
       excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: "psa_slab_photo" });
       continue;
     }
+    if (isThirdPartyPhotoHost(cand.imageUrl)) {
+      bump(skipped, "third_party_photo");
+      excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: "third_party_photo" });
+      continue;
+    }
     claimed.add(n);
     candidates.push(cand);
   }
   candidates.sort((a, b) => normalizeBaseNumber(a.number)! - normalizeBaseNumber(b.number)!);
   const missingNumbers: number[] = [];
-  for (let i = 1; i <= config.baseCount; i++) if (!claimed.has(i)) missingNumbers.push(i);
+  if (config.baseCount != null) {
+    for (let i = 1; i <= config.baseCount; i++) if (!claimed.has(i)) missingNumbers.push(i);
+  }
 
   const report: FillMissingReport = {
     setId, dryRun: opts.dryRun, canonicalSet, queries,
+    baseCount: config.baseCount, baseCountProvenance: config.baseCountProvenance ?? null,
+    importMode: config.baseCount == null ? "held_discovery" : "verified_cap",
     existing: { rows: existingRows.length, baseNumbers: haveNumbers.size },
     fetched, distinctFetched: byId.size, setsSeen, variantsSeen, skipped, excluded,
     detailsLookups, detailsImagesFound, candidates, inserted: [], insertConflicts: 0,
-    missingNumbers, existingFlagged, conflictOwners: [], adopted: [], totalRowsAfter: null, importRunId: null,
+    missingNumbers, insertBlocked: truncated ? "supplier_page_cap" : null,
+    truncated, pagesFetched, existingFlagged, conflictOwners: [], adopted: [], totalRowsAfter: null, importRunId: null,
   };
   const owned = candidates.length === 0 ? [] : (await db.execute<{ id: string; cardhedge_card_id: string; game_set_id: string;
     set_name: string; is_active: boolean; is_user_created: boolean; approved: boolean }>(sql`
@@ -401,7 +427,7 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
     if (row.approved) o.approvedRows++;
   }
   report.conflictOwners = [...ownerMap.values()];
-  if (opts.dryRun || candidates.length === 0) return report;
+  if (opts.dryRun || report.insertBlocked || candidates.length === 0) return report;
 
   if (opts.adoptFromInactive) {
     for (const row of owned) {

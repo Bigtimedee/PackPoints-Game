@@ -1,3 +1,4 @@
+import { isMissingExpansionId } from "../services/baseballExpansion/registry";
 import { lifecycleProfile } from "../services/setLifecycleRegistry";
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
@@ -348,6 +349,9 @@ export function getMaskProfile(setName: string | null | undefined, gameSetId?: s
   if (id && setIdProfiles[id]) return setIdProfiles[id];
   const authored = lifecycleProfile(id);
   if (authored) return authored;
+  // No measured plate for these ids. Do not use the 1989 Upper Deck 20%
+  // year/brand profile or any other brand fallback.
+  if (isMissingExpansionId(id)) return defaultProfile;
 
   const hint = parseSetHint(setName);
   if (!hint.raw && !id) return defaultProfile;

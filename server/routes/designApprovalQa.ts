@@ -11,6 +11,8 @@ import { lifecycleSet } from "../services/setLifecycleRegistry";
 import { isClearedSetId, maskProfileForSet, refreshHeldSets, setHasRegisteredMaskProfile } from "../config/heldSets";
 import { invalidatePublicMaskSetCache } from "../services/publicMaskGate";
 import { readDesignApproval, recordDesignApproval, revokeDesignApproval } from "../services/setDesignApproval";
+import { designApprovalDecision } from "../services/baseballExpansion/health";
+import { isMissingExpansionId } from "../services/baseballExpansion/registry";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -57,6 +59,8 @@ export function registerDesignApprovalQaRoutes(app: Express): void {
       const set = await findSet(setId);
       if (!set) { send(res, 404, { error: "Set not found" }); return; }
       const profile = await maskProfileId(setId);
+      const decision = designApprovalDecision({ isExpansion: isMissingExpansionId(setId), profileId: profile });
+      if (!decision.ok) { send(res, 409, { error: decision.error, code: decision.code }); return; }
       if (!profile) { send(res, 409, { error: "No registered mask profile for this set; Design cannot approve it yet", code: "no_mask_profile" }); return; }
       const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null;
       await recordDesignApproval(setId, profile, approvedBy, note);

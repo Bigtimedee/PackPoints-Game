@@ -119,6 +119,9 @@ import { registerDealableQaRoutes } from "./routes/dealableQa";
 import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
+import { registerBaseballExpansionQaRoutes } from "./routes/baseballExpansionQa";
+import { insertIntegratedGameSet } from "./services/baseballExpansion/createIntegratedSet";
+import { respondIfHeldGameStart } from "./routes/gameStartHeld";
 import { registerSignupQaRoutes } from "./routes/signupQa";
 import { registerGrowthStage1Routes } from "./routes/growthStage1Qa";
 import { registerAuthAccountStatusQaRoute } from "./routes/authAccountStatusQa";
@@ -193,6 +196,10 @@ const requireActiveUser = async (req: any, res: Response, next: NextFunction) =>
   }
   
   next();
+};
+
+export let gameStartHandler: (req: any, res: any) => void | Promise<void> = (_req, res) => {
+  res.status(503).json({ error: "Not ready" });
 };
 
 export async function registerRoutes(
@@ -560,6 +567,7 @@ export async function registerRoutes(
   registerQaSessionRoute(app);
   registerSetFillQaRoutes(app);
   registerHeldSetImportQaRoutes(app);
+  registerBaseballExpansionQaRoutes(app);
 
   // Public: Get a single set by id with maker metadata and play count
   app.get("/api/sets/:id", (req, res) => {
@@ -673,19 +681,15 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/start", gameStartLimiter, collectGeo, async (req: any, res) => {
+  gameStartHandler = async (req: any, res) => {
     try {
+      if (await respondIfHeldGameStart(req, res)) return;
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
       const { mode, totalQuestions, setId } = parsed.data;
-      await ensureHeldSets();
-
-      if (setId && isHeldSet(setId)) {
-        return res.status(404).json({ error: "Set not found" });
-      }
 
       if (setId && await isPanicEnabled(`disable_set_${setId}`)) {
         return res.status(503).json({ error: "This card set is temporarily disabled." });
@@ -874,7 +878,8 @@ export async function registerRoutes(
       console.error("Error starting game:", error);
       res.status(500).json({ error: "Failed to start game" });
     }
-  });
+  };
+  app.post("/api/game/start", gameStartLimiter, collectGeo, (req, res) => { void gameStartHandler(req, res); });
 
   app.get("/api/game/session/:id", createGameSessionReadHandler({
     getGameSession: (id) => storage.getGameSession(id),
@@ -5035,10 +5040,14 @@ export async function registerRoutes(
         cardhedgeCategory: parsed.data.cardhedgeCategory ?? null,
       };
       
-      const [gameSet] = await db.insert(gameSets).values(insertData).returning();
-      invalidatePublicMaskSetCache(gameSet.id);
+      const created = await insertIntegratedGameSet(insertData);
+      if (!created.created && created.code === "existing_identity") {
+        return res.status(409).json({ error: "An integrated set already has this identity", code: "existing_identity", matches: created.matches });
+      }
+      const [gameSet] = await db.select().from(gameSets).where(eq(gameSets.id, created.id)).limit(1);
+      invalidatePublicMaskSetCache(created.id);
       await refreshHeldSets();
-      res.status(201).json(gameSet);
+      res.status(created.created ? 201 : 200).json(gameSet);
     } catch (error) {
       console.error("Error creating game set:", error);
       res.status(500).json({ error: "Failed to create game set" });
@@ -6116,21 +6125,21 @@ export async function registerRoutes(
     try {
       const validated = CreatePlayableSetSchema.parse(req.body);
       
-      const [newSet] = await db
-        .insert(gameSets)
-        .values({
-          sport: validated.sport,
-          brand: validated.brand,
-          year: validated.year,
-          setName: validated.setName,
-          cardhedgeSetQuery: validated.cardhedgeSetQuery || validated.setName,
-          cardhedgeCategory: validated.cardhedgeCategory || validated.sport.charAt(0).toUpperCase() + validated.sport.slice(1),
-          marketplaceKeywords: validated.marketplaceKeywords,
-          isActive: validated.isActive,
-        })
-        .returning();
-      
-      res.json(newSet);
+      const created = await insertIntegratedGameSet({
+        sport: validated.sport,
+        brand: validated.brand,
+        year: validated.year,
+        setName: validated.setName,
+        cardhedgeSetQuery: validated.cardhedgeSetQuery || validated.setName,
+        cardhedgeCategory: validated.cardhedgeCategory || validated.sport.charAt(0).toUpperCase() + validated.sport.slice(1),
+        marketplaceKeywords: validated.marketplaceKeywords,
+        isActive: validated.isActive,
+      });
+      if (!created.created && created.code === "existing_identity") {
+        return res.status(409).json({ error: "An integrated set already has this identity", code: "existing_identity", matches: created.matches });
+      }
+      const [newSet] = await db.select().from(gameSets).where(eq(gameSets.id, created.id)).limit(1);
+      res.status(created.created ? 201 : 200).json(newSet);
     } catch (error: any) {
       console.error("Error creating playable set:", error);
       if (error.name === "ZodError") {

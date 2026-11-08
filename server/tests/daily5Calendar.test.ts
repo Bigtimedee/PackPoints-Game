@@ -159,6 +159,15 @@ describe("Daily 5 resolver", () => {
     expect(choice).toMatchObject({ id: B24, source: "fallback", slot: "fallback" });
   });
 
+  it("does not deal a missing expansion set even when it is scheduled and dealable", async () => {
+    const fleer = "891b39b8-0058-5e55-9837-6e4830c55d32";
+    const choice = await resolveDaily5SetForDate("2026-10-05", deps({
+      config: () => ({ greenSetIds: [fleer], fallbackSetId: B24 }),
+    }));
+    expect(choice?.id).toBe(B24);
+    expect(choice?.skipped[0]).toEqual({ id: fleer, reason: "expansion_not_enrolled" });
+  });
+
   it("skips a held scheduled set for the fallback", async () => {
     const choice = await resolveDaily5SetForDate("2026-10-07", deps({ held: [F87] }));
     expect(choice).toMatchObject({ id: B24, source: "fallback", scheduledSetId: F87 });

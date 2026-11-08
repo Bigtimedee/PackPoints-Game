@@ -13,6 +13,7 @@ import { eq, inArray } from "drizzle-orm";
 
 const stamp = randomUUID().slice(0, 8);
 const ch = (n: string) => `fill-missing:${stamp}:${n}`;
+let failSearch = false;
 const searchCards = [
   // Already in the set: Card Hedge now reports a different image. Must stay untouched.
   { card_id: ch("1"), player: "Wally Joyner", set: "1987 Donruss", number: "1", variant: "Base", category: "Baseball", image: "https://img.example/new-joyner.jpg" },
@@ -28,13 +29,17 @@ const searchCards = [
   { card_id: ch("9dup"), player: "Number Nine", set: "1987 Donruss", number: "9", variant: "Base", category: "Baseball", image: "https://img.example/nine2.jpg" },
   { card_id: ch("661"), player: "Too High", set: "1987 Donruss", number: "661", variant: "Base", category: "Baseball", image: "https://img.example/hi.jpg" },
   { card_id: ch("10"), player: "Football Guy", set: "1987 Donruss", number: "10", variant: "Base", category: "Football", image: "https://img.example/fb.jpg" },
+  { card_id: ch("tp"), player: "Photo Seller", set: "1987 Donruss", number: "11", variant: "Base", category: "Baseball", image: "https://images.psacard.com/front.jpg" },
 ];
 
 vi.mock("../services/cardhedge/client", async (orig) => {
   const actual = await orig<typeof import("../services/cardhedge/client")>();
   return {
     ...actual,
-    cardSearch: vi.fn(async (req: { page: number }) => ({ cards: req.page === 1 ? searchCards : [], pages: 1 })),
+    cardSearch: vi.fn(async (req: { page: number }) => {
+      if (failSearch) throw new Error("supplier down");
+      return { cards: req.page === 1 ? searchCards : [], pages: 1 };
+    }),
     cardDetails: vi.fn(async (req: { card_id: string }) => ({
       cards: req.card_id === ch("3") ? [{ card_id: ch("3"), image: "https://img.example/murphy-details.jpg" }] : [],
     })),
@@ -46,6 +51,7 @@ const { gameSets, playableCards, cardReviewApprovals } = await import("@shared/s
 const { DONRUSS_1987_HOLD_ID } = await import("../config/heldSets");
 const { fillExclusionReason, fillMissingCards, FILL_MISSING_SETS, isSlabPhoto } = await import("../services/setFillMissing");
 const { registerSetFillQaRoutes } = await import("../routes/setFillQa");
+const { registerBaseballExpansionQaRoutes } = await import("../routes/baseballExpansionQa");
 
 const TOKEN = `fill-${stamp}`;
 const previousToken = process.env.COVER_QA_TOKEN;
@@ -72,6 +78,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   registerSetFillQaRoutes(app);
+  registerBaseballExpansionQaRoutes(app);
   server = createServer(app);
   await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
@@ -129,7 +136,7 @@ describe("fill-missing import (DB)", () => {
     expect(report.skipped.psa_slab_photo).toBe(1);
     expect(report.skipped.number_already_in_set).toBe(1);
     expect(report.excluded.map((e) => e.reason).sort()).toEqual([
-      "classifier_checklist", "denylist_off_set_clemente", "denylist_ripken_wristband_signature", "psa_slab_photo",
+      "classifier_checklist", "denylist_off_set_clemente", "denylist_ripken_wristband_signature", "psa_slab_photo", "third_party_photo",
     ]);
     const [kept] = await db.select().from(playableCards).where(eq(playableCards.id, existingId));
     expect(kept.imageUrl).toBe("https://img.example/approved-joyner.jpg");
@@ -140,6 +147,16 @@ describe("fill-missing import (DB)", () => {
     expect(murphy.imageUrl).toBe("https://img.example/murphy-details.jpg");
     const again = await fillMissingCards(DONRUSS_1987_HOLD_ID, { dryRun: false, details: true });
     expect(again.inserted).toEqual([]);
+    expect(again.insertBlocked).toBeNull();
+  });
+
+  it("a supplier failure inserts nothing", async () => {
+    const before = await db.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.gameSetId, DONRUSS_1987_HOLD_ID));
+    failSearch = true;
+    await expect(fillMissingCards(DONRUSS_1987_HOLD_ID, { dryRun: false, details: false })).rejects.toThrow(/supplier down/);
+    failSearch = false;
+    const after = await db.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.gameSetId, DONRUSS_1987_HOLD_ID));
+    expect(after.map((row) => row.id).sort()).toEqual(before.map((row) => row.id).sort());
   });
 });
 
@@ -153,7 +170,7 @@ describe("fill-missing QA route", () => {
     expect((await fetch(other, { method: "POST", headers: { "X-QA-Token": TOKEN } })).status).toBe(404);
   });
 
-  it("validates the body and runs a dry-run job by default", async () => {
+  it("keeps the original dry-run job for an existing fill set", async () => {
     const url = `${base}/api/qa/sets/${DONRUSS_1987_HOLD_ID}/fill-missing`;
     const headers = { "X-QA-Token": TOKEN, "Content-Type": "application/json" };
     const bad = await fetch(url, { method: "POST", headers, body: JSON.stringify({ dryRun: "no" }) });
@@ -169,6 +186,43 @@ describe("fill-missing QA route", () => {
     }
     expect(job.state).toBe("completed");
     expect(job.report?.inserted).toEqual([]);
+  });
+
+  it("requires an explicit mode for a missing expansion set and does not echo credentials", async () => {
+    const { missingExpansionTargets, fillConfigFromTarget } = await import("../services/baseballExpansion/registry");
+    const target = missingExpansionTargets()[0]!;
+    expect(fillConfigFromTarget(target).baseCount).toBe(target.baseCount);
+    expect(fillConfigFromTarget({ ...target, baseCount: 660, baseCountProvenance: "cardhedge page count" }).baseCount).toBe(660);
+    const res = await fetch(`${base}/api/qa/sets/${target.id}/fill-missing`, {
+      method: "POST",
+      headers: { "X-QA-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("explicit_mode_required");
+    expect(JSON.stringify(body)).not.toMatch(/CARDHEDGE|COVER_QA|api_key|BEGIN /i);
+    const preview = await fetch(`${base}/api/qa/sets/${target.id}/fill-missing`, {
+      method: "POST",
+      headers: { "X-QA-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ supplierPreview: true }),
+    });
+    expect(preview.status).toBe(202);
+    const started = await preview.json();
+    expect(started.dryRun).toBe(true);
+    expect(JSON.stringify(started)).not.toMatch(/CARDHEDGE|COVER_QA|api_key/i);
+  });
+
+  it("keeps expansion inventory and export off the public route", async () => {
+    expect((await fetch(`${base}/api/qa/baseball-expansion/inventory`)).status).toBe(404);
+    const id = "891b39b8-0058-5e55-9837-6e4830c55d32";
+    expect((await fetch(`${base}/api/qa/baseball-expansion/${id}/export`, { method: "POST" })).status).toBe(404);
+    const headers = { "X-QA-Token": TOKEN, "Content-Type": "application/json" };
+    const idle = await fetch(`${base}/api/qa/baseball-expansion/${id}/export`, { method: "POST", headers, body: JSON.stringify({ directory: "/tmp/public" }) });
+    expect(idle.status).toBe(400);
+    const idleBody = await idle.json();
+    expect(idleBody.code).toBe("box_exporter_required");
+    expect(JSON.stringify(idleBody)).not.toMatch(/CARDHEDGE|COVER_QA|sourceUrl|player/i);
   });
 });
 
