@@ -3,49 +3,76 @@ import bcrypt from "bcryptjs";
 import { describe, expect, it } from "vitest";
 import { annotateAccountStatus } from "../auth/accountStatus";
 import {
+  BCRYPT_COMPARE_COST_MAX,
+  BCRYPT_COMPARE_COST_MIN,
   isBcryptHash,
   summarizeStoredHashes,
-  verifyStoredPasswords,
+  verifySelectedCredential,
 } from "../auth/credentialCheck";
 
 const SECRET = "alpha-pass-1";
 const OTHER = "beta-pass-1";
 
-describe("stored local credential classification", () => {
-  it("recognizes a bcrypt hash and rejects a truncated or plaintext value before compare", async () => {
-    const hash = await bcrypt.hash(SECRET, 4);
-    expect(isBcryptHash(hash)).toBe(true);
-    expect(summarizeStoredHashes([hash])).toMatchObject({
-      credentialCount: 1,
-      formatValid: true,
-      algorithm: "bcrypt",
-      credentialSource: "local_credentials",
-      verifier: "bcrypt.compare",
-    });
+function withRevision(hash: string, revision: "a" | "b" | "y"): string {
+  return `$2${revision}$${hash.slice(4)}`;
+}
 
+function craft(cost: string): string {
+  return `$2b$${cost}$${"a".repeat(53)}`;
+}
+
+describe("stored local credential classification", () => {
+  it("accepts bcryptjs $2a$, $2b$, and $2y$ hashes inside the compare cost range", async () => {
+    const hash = await bcrypt.hash(SECRET, 4);
+    expect(hash.startsWith("$2")).toBe(true);
+    for (const revision of ["a", "b", "y"] as const) {
+      const stored = withRevision(hash, revision);
+      expect(isBcryptHash(stored), revision).toBe(true);
+      expect(await bcrypt.compare(SECRET, stored)).toBe(true);
+      expect(await verifySelectedCredential({
+        hash: stored,
+        password: SECRET,
+        compare: (password, candidate) => bcrypt.compare(password, candidate),
+      })).toBe("ok");
+    }
+    expect(BCRYPT_COMPARE_COST_MIN).toBe(4);
+    expect(BCRYPT_COMPARE_COST_MAX).toBe(12);
+  });
+
+  it("rejects malformed shapes and hostile costs before compare and without throwing", async () => {
     const compared: string[] = [];
-    const broken = await verifyStoredPasswords({
-      hashes: ["not-a-hash", hash.slice(0, 59)],
-      password: SECRET,
-      compare: async (_password, stored) => {
-        compared.push(stored);
-        return true;
-      },
-    });
-    expect(broken).toBe("hash_unrecognized");
+    const compare = async (_password: string, stored: string) => {
+      compared.push(stored);
+      return true;
+    };
+    const hostile = [
+      "not-a-hash",
+      `$2b$10$${ "a".repeat(52)}`,
+      "$2x$10$" + "a".repeat(53),
+      craft("03"),
+      craft("00"),
+      craft("31"),
+      craft("99"),
+      "$2b$ab$" + "a".repeat(53),
+    ];
+    for (const hash of hostile) {
+      expect(isBcryptHash(hash), hash.slice(0, 7)).toBe(false);
+      await expect(verifySelectedCredential({ hash, password: SECRET, compare })).resolves.toBe("hash_unrecognized");
+    }
     expect(compared).toEqual([]);
-    expect(summarizeStoredHashes(["not-a-hash"])).toMatchObject({
+    expect(summarizeStoredHashes([craft("99")])).toMatchObject({
+      credentialCount: 1,
       formatValid: false,
       algorithm: "unrecognized",
       verifier: "rejected_before_compare",
     });
   });
 
-  it("reports compare_false only after a well-formed hash does not match", async () => {
+  it("reports compare_false only after the one selected hash does not match", async () => {
     const hash = await bcrypt.hash(SECRET, 4);
     const calls: string[] = [];
-    const branch = await verifyStoredPasswords({
-      hashes: [hash],
+    const branch = await verifySelectedCredential({
+      hash,
       password: OTHER,
       compare: async (password, stored) => {
         calls.push(stored);
@@ -54,27 +81,29 @@ describe("stored local credential classification", () => {
     });
     expect(branch).toBe("compare_false");
     expect(calls).toEqual([hash]);
-    expect(await verifyStoredPasswords({
-      hashes: [hash],
-      password: SECRET,
-      compare: (password, stored) => bcrypt.compare(password, stored),
-    })).toBe("ok");
+    expect(await verifySelectedCredential({ hash: undefined, password: SECRET, compare: async () => true })).toBe("no_credential");
   });
 
-  it("accepts the account when a later well-formed row matches and skips a malformed row", async () => {
-    const hash = await bcrypt.hash(SECRET, 4);
+  it("does not accept a second, older hash", async () => {
+    const current = await bcrypt.hash(OTHER, 4);
+    const older = await bcrypt.hash(SECRET, 4);
     const seen: string[] = [];
-    const branch = await verifyStoredPasswords({
-      hashes: ["placeholder", hash],
+    const branch = await verifySelectedCredential({
+      hash: current,
       password: SECRET,
       compare: async (password, stored) => {
         seen.push(stored);
         return bcrypt.compare(password, stored);
       },
     });
-    expect(branch).toBe("ok");
-    expect(seen).toEqual([hash]);
-    expect(summarizeStoredHashes(["placeholder", hash]).algorithm).toBe("mixed");
+    expect(branch).toBe("compare_false");
+    expect(seen).toEqual([current]);
+    expect(seen).not.toContain(older);
+    expect(summarizeStoredHashes([older, current])).toMatchObject({
+      credentialCount: 2,
+      formatValid: true,
+      algorithm: "bcrypt",
+    });
   });
 
   it("does not copy a hash or its salt into the account-status report", async () => {
@@ -87,7 +116,7 @@ describe("stored local credential classification", () => {
       hasLocalCredential: true,
       workosLinked: true,
       provider: "google",
-      passwordHashes: [hash],
+      passwordHashes: [hash, craft("31")],
     }], [{
       id: "local-user",
       username: "localplayer",
@@ -95,9 +124,9 @@ describe("stored local credential classification", () => {
     }]);
     const encoded = JSON.stringify(report);
     expect(report.accounts[0]).toMatchObject({
-      credentialCount: 1,
-      formatValid: true,
-      algorithm: "bcrypt",
+      credentialCount: 2,
+      formatValid: false,
+      algorithm: "mixed",
       credentialSource: "local_credentials",
       verifier: "bcrypt.compare",
       hasLocalCredential: true,
@@ -105,9 +134,15 @@ describe("stored local credential classification", () => {
     expect(encoded).not.toContain(hash);
     expect(encoded).not.toContain(salt);
     expect(encoded).not.toContain(SECRET);
+    expect(encoded).not.toContain(craft("31"));
   });
 
-  it("login failure log names the branch and not the typed identifier", () => {
+  it("login still reads one credential row and logs only the branch", () => {
+    const storage = readFileSync(new URL("../storage.ts", import.meta.url), "utf8");
+    const validate = storage.slice(storage.indexOf("async validateLocalCredentials"), storage.indexOf("async findUserForPasswordReset"));
+    expect(validate).toContain("const [credential]");
+    expect(validate).toContain("verifySelectedCredential");
+    expect(validate).not.toContain("rows.map");
     const routes = readFileSync(new URL("../routes.ts", import.meta.url), "utf8");
     const login = routes.slice(
       routes.indexOf('app.post("/api/auth/local-login"'),
@@ -117,7 +152,6 @@ describe("stored local credential classification", () => {
     expect(login).toContain("[Login] Invalid credentials branch=");
     expect(login).not.toContain("Validating credentials for:");
     expect(login).not.toContain("Invalid credentials for:");
-    expect(login).not.toContain("branch=${usernameOrEmail}");
     const denied = login.indexOf('return res.status(401)');
     const claim = login.indexOf("claimAnonForUser");
     expect(denied).toBeGreaterThan(-1);

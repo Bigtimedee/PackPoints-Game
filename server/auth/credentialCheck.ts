@@ -18,10 +18,16 @@ export type CredentialSummary = {
 
 export type PasswordVerifyBranch = "ok" | "no_credential" | "hash_unrecognized" | "compare_false";
 
+/** bcryptjs compares $2a$, $2b$, and $2y$. Costs outside 4-12 are not compared: below 4 throws, above 12 is a CPU sink up to 2^31. */
+export const BCRYPT_COMPARE_COST_MIN = 4;
+export const BCRYPT_COMPARE_COST_MAX = 12;
+
 const BCRYPT_HASH = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
 export function isBcryptHash(hash: unknown): hash is string {
-  return typeof hash === "string" && BCRYPT_HASH.test(hash);
+  if (typeof hash !== "string" || !BCRYPT_HASH.test(hash)) return false;
+  const cost = Number(hash.slice(4, 6));
+  return Number.isInteger(cost) && cost >= BCRYPT_COMPARE_COST_MIN && cost <= BCRYPT_COMPARE_COST_MAX;
 }
 
 export function summarizeStoredHashes(hashes: readonly unknown[]): CredentialSummary {
@@ -38,7 +44,7 @@ export function summarizeStoredHashes(hashes: readonly unknown[]): CredentialSum
   const algorithm: CredentialAlgorithm = valid === hashes.length ? "bcrypt" : valid === 0 ? "unrecognized" : "mixed";
   return {
     credentialCount: hashes.length,
-    formatValid: valid === hashes.length,
+    formatValid: valid === hashes.length && valid > 0,
     algorithm,
     credentialSource: "local_credentials",
     verifier: valid > 0 ? "bcrypt.compare" : "rejected_before_compare",
@@ -46,21 +52,16 @@ export function summarizeStoredHashes(hashes: readonly unknown[]): CredentialSum
 }
 
 /**
- * Check every well-formed hash for this one account.
- * A malformed row is not treated as a wrong secret.
- * Success if any well-formed hash matches. Callers must not pass another account's hashes.
+ * Check the one credential row login already selected.
+ * Other rows are not accepted, so an older hash cannot be reused.
+ * A malformed or hostile cost returns before compare and does not throw.
  */
-export async function verifyStoredPasswords(input: {
-  hashes: readonly unknown[];
+export async function verifySelectedCredential(input: {
+  hash: unknown | undefined;
   password: string;
   compare: (password: string, hash: string) => Promise<boolean>;
 }): Promise<PasswordVerifyBranch> {
-  const summary = summarizeStoredHashes(input.hashes);
-  if (summary.credentialCount === 0) return "no_credential";
-  const valid = input.hashes.filter(isBcryptHash);
-  if (valid.length === 0) return "hash_unrecognized";
-  for (const hash of valid) {
-    if (await input.compare(input.password, hash)) return "ok";
-  }
-  return "compare_false";
+  if (input.hash === undefined) return "no_credential";
+  if (!isBcryptHash(input.hash)) return "hash_unrecognized";
+  return (await input.compare(input.password, input.hash)) ? "ok" : "compare_false";
 }

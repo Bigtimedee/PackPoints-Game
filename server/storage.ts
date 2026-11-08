@@ -16,7 +16,7 @@ import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
 import { applyVerifiedPasswordReset, UnverifiedPasswordReset } from "./auth/passwordResetApply";
 import { selectLoginIdentity, selectResetIdentity } from "./auth/identitySelect";
-import { verifyStoredPasswords, type PasswordVerifyBranch } from "./auth/credentialCheck";
+import { verifySelectedCredential, type PasswordVerifyBranch } from "./auth/credentialCheck";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
@@ -501,14 +501,14 @@ export class DatabaseStorage implements IStorage {
     const pick = selectLoginIdentity(usernameOrEmail, await this.identityCandidates(usernameOrEmail));
     if (pick.status === "none") return { user: null, branch: "no_user" };
     if (pick.status === "ambiguous") return { user: null, branch: "ambiguous_identity" };
-    const rows = await db
+    const [credential] = await db
       .select({ passwordHash: localCredentials.passwordHash })
       .from(localCredentials)
       .where(eq(localCredentials.userId, pick.id));
-    const branch = await verifyStoredPasswords({
-      hashes: rows.map((row) => row.passwordHash),
+    const branch = await verifySelectedCredential({
+      hash: credential ? credential.passwordHash : undefined,
       password,
-      compare: (plain, hash) => bcrypt.compare(plain, hash),
+      compare: (plain, stored) => bcrypt.compare(plain, stored),
     });
     if (branch !== "ok") return { user: null, branch };
     const user = await this.getUser(pick.id);
