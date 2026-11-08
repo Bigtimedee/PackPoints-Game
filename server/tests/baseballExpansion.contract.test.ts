@@ -24,6 +24,7 @@ import {
   BASEBALL_EXPANSION_TARGETS,
   EXPANSION_NAMESPACE,
   expansionTargetById,
+  fillConfigFromTarget,
   isDaily5ExpansionBlocked,
   missingExpansionTargets,
 } from "../services/baseballExpansion/registry";
@@ -36,6 +37,29 @@ function uuidv5(name: string): string {
   const h = hash.subarray(0, 16).toString("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
+
+const PROVENANCE = (page: string) =>
+  `Published BASE checklist: https://baseballcardpedia.com/index.php/${page} (opened Nov8 2026; explicit set-size declaration, not supplier max card number).`;
+
+/** Exact published checklist lengths. Not supplier candidate totals. */
+const VERIFIED_BASE_COUNTS: { id: string; count: number; provenance: string }[] = [
+  { id: "97456b32-7b68-56fe-971a-1c821e2b09c4", count: 792, provenance: PROVENANCE("1990_Topps") },
+  { id: "14f17bb7-a697-5080-9ec5-381c6d7e15ce", count: 792, provenance: PROVENANCE("1991_Topps") },
+  { id: "891b39b8-0058-5e55-9837-6e4830c55d32", count: 660, provenance: PROVENANCE("1986_Fleer") },
+  { id: "1540603b-d6d0-5cd0-884b-9058c9830c13", count: 660, provenance: PROVENANCE("1987_Fleer") },
+  { id: "cc78d8df-0502-5876-aab4-5d6a49f72899", count: 660, provenance: PROVENANCE("1988_Fleer") },
+  { id: "855e8125-4169-5d0b-b04c-3513feae9637", count: 660, provenance: PROVENANCE("1989_Fleer") },
+  { id: "7bb0e667-46ce-5cfe-a76c-a51044756725", count: 660, provenance: PROVENANCE("1990_Fleer") },
+  { id: "49e656e0-3762-5113-82b5-1480f1c77541", count: 720, provenance: PROVENANCE("1991_Fleer") },
+  { id: "c54ed617-573d-5d95-9355-2feea73a7435", count: 660, provenance: PROVENANCE("1986_Donruss") },
+  { id: "f690058c-3bde-51d4-a4e5-057b5d45478a", count: 660, provenance: PROVENANCE("1988_Donruss") },
+  { id: "d6997c20-0880-5119-80d2-9ce8c9b4727e", count: 660, provenance: PROVENANCE("1989_Donruss") },
+  { id: "64130c7a-6b1a-533c-9575-1089f7adfdce", count: 716, provenance: PROVENANCE("1990_Donruss") },
+  { id: "e4f4a86e-3908-5e93-af8f-fd8462c25d97", count: 770, provenance: PROVENANCE("1991_Donruss") },
+  { id: "eb88c57e-cbd5-5d4b-a223-37b8fa8f99c2", count: 800, provenance: PROVENANCE("1989_Upper_Deck") },
+  { id: "72dc22b4-38e0-5f7a-8295-a7f5488a5e81", count: 800, provenance: PROVENANCE("1990_Upper_Deck") },
+  { id: "cd597562-5b8f-5517-aca0-38b04f443747", count: 800, provenance: PROVENANCE("1991_Upper_Deck") },
+];
 
 const LIVE = {
   "1986-topps-baseball": "2b77043a-6583-4d79-b59d-d2ab20291a17",
@@ -56,12 +80,25 @@ describe("21 baseball targets", () => {
     }
     const held = readFileSync(path.join(__dirname, "../config/heldSets.ts"), "utf8");
     const cleared = held.slice(held.indexOf("export const CLEARED_SET_IDS"), held.indexOf("export const DONRUSS_1987_HOLD_ID"));
+    const verified = new Map(VERIFIED_BASE_COUNTS.map((row) => [row.id, row]));
+    expect(missingExpansionTargets().map((target) => target.id).sort()).toEqual([...verified.keys()].sort());
     for (const target of missingExpansionTargets()) {
+      const row = verified.get(target.id);
+      expect(row, target.slug).toBeTruthy();
       expect(cleared).not.toContain(target.id);
       expect(isDaily5ExpansionBlocked(target.id)).toBe(true);
-      expect(target.baseCount).toBeNull();
+      expect(target.role).toBe("missing");
+      expect(target.baseCount).toBe(row!.count);
+      expect(target.baseCountProvenance).toBe(row!.provenance);
+      expect(fillConfigFromTarget(target).baseCount).toBe(row!.count);
+      expect(fillConfigFromTarget(target).baseCountProvenance).toBe(row!.provenance);
+      const profile = getMaskProfile(target.identity.setName, target.id);
+      expect(profile.matched).toBe(false);
+      expect(profile.id).toBe("default");
+      expect(profileIsRegistered(profile, target.id)).toBe(false);
       const key = `baseball|${target.identity.year}|${target.identity.brand.toLowerCase()}|${target.identity.setName}`;
       expect(target.id).toBe(uuidv5(key));
+      expect(canonicalSetKey(target.identity)).toBe(`baseball|${target.identity.year}|${target.identity.brand.toLowerCase()}|base`);
     }
     expect(isDaily5ExpansionBlocked(LIVE["1987-topps-baseball"])).toBe(false);
   });

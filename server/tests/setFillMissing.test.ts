@@ -50,6 +50,8 @@ const { db } = await import("../db");
 const { gameSets, playableCards, cardReviewApprovals } = await import("@shared/schema");
 const { DONRUSS_1987_HOLD_ID } = await import("../config/heldSets");
 const { fillExclusionReason, fillMissingCards, FILL_MISSING_SETS, isSlabPhoto } = await import("../services/setFillMissing");
+const { expansionTargetById, fillConfigFromTarget, missingExpansionTargets } = await import("../services/baseballExpansion/registry");
+const { classifyCard } = await import("../services/cardClassifier");
 const { registerSetFillQaRoutes } = await import("../routes/setFillQa");
 const { registerBaseballExpansionQaRoutes } = await import("../routes/baseballExpansionQa");
 
@@ -116,6 +118,24 @@ describe("fill-missing exclusions (pure)", () => {
     expect(fillExclusionReason({ ...ok, category: "Football" }, ctx)).toBe("wrong_sport");
     expect(isSlabPhoto("https://x/f1706882866535x667695662112719000_hometown.jpg")).toBe(true);
     expect(isSlabPhoto("https://x/f1730363329358x756484817878209200_crop_image")).toBe(false);
+  });
+
+  it("uses the published checklist as the cap and does not treat a Salute variant as a classifier hit", () => {
+    for (const target of missingExpansionTargets()) {
+      const config = fillConfigFromTarget(target);
+      const ctx = { sport: "baseball", canonicalSet: config.canonicalSet, config };
+      const inside = { player: "Alex Player", set: config.canonicalSet, variant: "Base", number: String(config.baseCount), category: "Baseball" };
+      expect(fillExclusionReason(inside, ctx), target.slug).toBeNull();
+      expect(fillExclusionReason({ ...inside, number: String((config.baseCount ?? 0) + 1) }, ctx)).toBe("bad_number");
+    }
+    const topps = expansionTargetById("97456b32-7b68-56fe-971a-1c821e2b09c4")!;
+    const config = fillConfigFromTarget(topps);
+    const ctx = { sport: "baseball", canonicalSet: config.canonicalSet, config };
+    expect(classifyCard({ player: "Nolan Ryan", description: "5000 K" })).toEqual({ isPlayable: true, blockedReason: null });
+    expect(classifyCard({ player: "Nolan Ryan Salute", description: null }).isPlayable).toBe(true);
+    expect(fillExclusionReason({ player: "Nolan Ryan", set: config.canonicalSet, variant: "Base", number: "2", category: "Baseball" }, ctx)).toBeNull();
+    expect(fillExclusionReason({ player: "Nolan Ryan", set: config.canonicalSet, variant: "Salute", number: "2", category: "Baseball" }, ctx)).toBe("not_base");
+    expect(fillExclusionReason({ player: "Will Clark All-Star", set: config.canonicalSet, variant: "Base", number: "397", category: "Baseball" }, ctx)).toBe("classifier_all-stars");
   });
 });
 
