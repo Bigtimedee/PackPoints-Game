@@ -56,7 +56,9 @@ PACKPTS_BASE_URL="$BASE" COVER_QA_TOKEN="$COVER_QA_TOKEN" \
   npx tsx scripts/export-design-inbox.ts --set <id> --out /workspace/packpts-design/set-expansion-21/inbox
 ```
 
-The script is the entrypoint. It deletes `REVIEW_READY` before downloading, streams each file with a 15MB cap, deletes a partial file on failure, and refuses a symlink or a `public` / `static` / `dist` / `masked-cards` path. Card ids that are not UUIDs are not used as filenames. It then calls `exportDesignSet`, which writes `profile.json`, `pool.csv` (`heldId,player,cardNo,sourceUrl,width,height`), paired `source/` and `masked/`, `covers/NOT_DAILY5.json`, `original-submitted.csv`, and `reconciliation.json`. `--review` writes `REVIEW_READY` only after that packet validates. The marker says `releaseApproval: false`. A failed rerun removes a stale marker. It is not GREEN. Run it on the box. Do not treat a file written on an agent VM as the Design copy.
+The script is the entrypoint. `--out` is a trusted private directory. The script refuses a symlink or a `public` / `static` / `dist` / `masked-cards` path. That is not a proof against a hostile writer racing the process. It deletes `REVIEW_READY` before downloading, streams each file with a 15MB cap, and deletes a partial file on failure. Card ids that are not UUIDs are not used as filenames. It then calls `exportDesignSet`, which writes `profile.json`, `pool.csv` (`heldId,player,cardNo,sourceUrl,width,height`), paired `source/` and `masked/` when `--review` is set, `covers/NOT_DAILY5.json`, and `reconciliation.json`.
+
+The first `--review` stores the original id list once, in `original-submitted.csv` and in `design_pool_submissions` when that route accepts it. A later run reads that row. The id list and its hash are the membership. A matching count is not. The same count with different ids stays the first list. A different source witness or mask revision does not replace it. `--resubmit` appends `resubmissions.json` and sets `replacesOriginal` false. Source-only discovery does not create the original list. `--review` writes `REVIEW_READY` only after the packet validates. The marker says `releaseApproval: false`. A failed rerun removes a stale marker and does not delete the stored original list. It is not GREEN. Run it on the box. Do not treat a file written on an agent VM as the Design copy.
 
 `POST /api/qa/baseball-expansion/:id/original-pool` stores sorted card ids, the manifest hash, and a source witness. The insert reloads the winning row. A same-size different id list is `409 membership_mismatch`. The same ids with a different source witness are `409 witness_changed`. Ids that are not in that held set are `409 foreign_card`. The prep gate does not call it.
 
@@ -66,7 +68,7 @@ This is not tables only.
 
 - Nullable column `game_sets.canonical_identity`.
 - Partial unique index `uq_game_sets_canonical_identity` where that column is not null. Existing rows stay null.
-- Table `design_pool_submissions` for a later full-pool GREEN. The prep gate does not read it.
+- Table `design_pool_submissions` for the original id list. The hold gate does not read it. The box exporter reads it when the row exists and does not replace that row.
 
 Boot still uses the live backup code from `5ffc9de`: a custom-format `pg_dump` before `drizzle-kit push --force` when the schema hash changed, and the push is skipped if that dump fails. `BOOT_BACKUP_KEEP` is 14 files. That is not the 30 Oct 2026 decision of 7 daily backups, and this change does not rewrite retention. A foreground push that does not apply now refuses to open routes (`schema_not_ready`). The fast path still opens only after the catalog probe matches `shared/schema.ts`, which includes the new column, partial unique index, and `design_pool_submissions`. Do not push by hand. `planCanonicalBackfill` is a read-only collision report. This deploy does not DELETE or UPDATE historical rows.
 
@@ -76,7 +78,16 @@ Exact additive DDL, and nothing else:
 - `CREATE UNIQUE INDEX uq_game_sets_canonical_identity ON game_sets (canonical_identity) WHERE canonical_identity IS NOT NULL`.
 - `CREATE TABLE design_pool_submissions` (set id, count, manifest hash, card ids, mask version, source witness, submitted at).
 
-Before that DDL, a read-only preflight checks the backup directory is readable, the newest dump is non-empty when one exists, free space is above the operator minimum when it can be read, and `planCanonicalBackfill` reports zero collisions. No production action is taken from this repository.
+Boot does not run a separate preflight. Nothing in this repo calls one automatically. Before an operator applies that DDL by hand, they run these reads themselves. This repository does not run them.
+
+```sql
+SELECT column_name FROM information_schema.columns
+ WHERE table_schema = 'public' AND table_name = 'game_sets' AND column_name = 'canonical_identity';
+SELECT indexname FROM pg_indexes WHERE indexname = 'uq_game_sets_canonical_identity';
+SELECT to_regclass('public.design_pool_submissions');
+```
+
+Confirm the backup directory on the volume is readable and the newest dump file is non-empty. `planCanonicalBackfill` is a read-only collision report an operator can run in a shell; boot does not call it. No production action is taken from this repository.
 
 ## CI
 

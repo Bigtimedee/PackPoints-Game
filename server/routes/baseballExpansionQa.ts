@@ -8,7 +8,7 @@ import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import { listExpansionInventory } from "../services/baseballExpansion/inventory";
 import { expansionTargetById } from "../services/baseballExpansion/registry";
-import { recordOriginalMembership } from "../services/baseballExpansion/store";
+import { readOriginalMembership, recordOriginalMembership } from "../services/baseballExpansion/store";
 import { getMaskProfile } from "../masking/maskProfiles";
 import { isMissingExpansionId } from "../services/baseballExpansion/registry";
 
@@ -67,6 +67,27 @@ export function registerBaseballExpansionQaRoutes(app: Express): void {
       code: "box_exporter_required",
       error: "The server does not write the Design inbox. Run scripts/export-design-inbox.ts on the box with X-QA-Token reads.",
     });
+  });
+
+  app.get("/api/qa/baseball-expansion/:setId/original-pool", (req, res) => {
+    stripConditionalValidators(req);
+    if (!tokenOk(req)) return send(res, 404, { error: "Not found" });
+    const target = expansionTargetById(req.params.setId);
+    if (!target || !isMissingExpansionId(target.id)) return send(res, 404, { error: "Not found" });
+    void readOriginalMembership(target.id).then((row) => {
+      if (!row) return send(res, 404, { error: "Not found" });
+      if ("unreadable" in row) return send(res, 409, { code: "membership_unreadable", error: "Stored ids do not match the stored hash" });
+      send(res, 200, {
+        setId: target.id,
+        cardIds: row.ids,
+        manifestSha256: row.hash,
+        originalCount: row.count,
+        sourceWitness: row.sourceWitness,
+        maskVersion: row.maskVersion,
+        submittedAt: row.submittedAt,
+        releaseApproval: false,
+      });
+    }).catch(() => { if (!res.headersSent) send(res, 500, { error: "membership failed" }); });
   });
 
   app.post("/api/qa/baseball-expansion/:setId/original-pool", (req, res) => {

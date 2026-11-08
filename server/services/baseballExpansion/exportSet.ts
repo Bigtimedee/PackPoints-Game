@@ -134,9 +134,52 @@ export function reviewPacketMissing(directory: string, ids: readonly string[]): 
   return missing;
 }
 
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i]!;
+    if (quoted) {
+      if (ch === "\"" && line[i + 1] === "\"") { current += "\""; i += 1; continue; }
+      if (ch === "\"") { quoted = false; continue; }
+      current += ch;
+      continue;
+    }
+    if (ch === "\"") { quoted = true; continue; }
+    if (ch === ",") { cells.push(current); current = ""; continue; }
+    current += ch;
+  }
+  cells.push(current);
+  return cells;
+}
+
+export function originalRowsFromCsv(text: string): { heldId: string; sourceUrl: string }[] {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0).slice(1);
+  return lines.map((line) => {
+    const cells = parseCsvLine(line);
+    return { heldId: (cells[0] ?? "").trim().toLowerCase(), sourceUrl: cells[3] ?? "" };
+  }).filter((row) => row.heldId.length > 0);
+}
+
+/** Rows for ids that are not in this download stay on the manifest with empty source fields. */
+export function originalCsvForIds(
+  ids: readonly string[],
+  cards: readonly { heldId: string; player: string; cardNo: string; sourceUrl: string; width: number; height: number }[],
+): string {
+  const byId = new Map(cards.map((card) => [card.heldId.toLowerCase(), card]));
+  const lines = [HEADER];
+  for (const id of ids) {
+    const card = byId.get(id.toLowerCase());
+    lines.push(card
+      ? poolLine(card)
+      : [id.toLowerCase(), "", "", "", 0, 0].map((value) => csvCell(value)).join(","));
+  }
+  return lines.join("\n") + "\n";
+}
+
 function parsePool(text: string): { heldId: string }[] {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  return lines.slice(1).map((line) => ({ heldId: line.split(",")[0]!.replace(/^"|"$/g, "") }));
+  return originalRowsFromCsv(text).map((row) => ({ heldId: row.heldId }));
 }
 
 function hostOf(url: string): string {
@@ -159,6 +202,13 @@ export async function exportDesignSet(input: {
   /** source = discovery files only. review = may write REVIEW_READY. Never a release. */
   mode?: "source" | "review";
   engineeringMinimum?: number;
+  /** Set by the box entrypoint. Omitted by direct callers. */
+  membership?: {
+    source: "database" | "file" | "initialized" | "discovery";
+    mismatch: boolean;
+    witness: "matched" | "changed" | "uninitialized";
+    maskRevision: "matched" | "changed" | "uninitialized";
+  };
 }): Promise<ExportResult> {
   const directory = input.directory;
   mkdirSync(path.join(directory, "source"), { recursive: true });
@@ -171,6 +221,8 @@ export async function exportDesignSet(input: {
   let originalIds: string[];
   if (existsSync(manifestPath)) {
     originalIds = parsePool(readFileSync(manifestPath, "utf8")).map((row) => row.heldId);
+  } else if (input.mode === "source") {
+    originalIds = input.cards.map((card) => card.heldId);
   } else {
     originalIds = input.cards.map((card) => card.heldId);
     const body = [HEADER, ...input.cards.map(poolLine)].join("\n") + "\n";
@@ -249,6 +301,10 @@ export async function exportDesignSet(input: {
     const hard = reasons.filter((reason) => reason !== "name_check_unknown");
     return { cardId: id, passed: !unknown && hard.length === 0, findingsComplete: !unknown };
   });
+  const originalSet = new Set(originalIds);
+  for (const card of input.cards) {
+    if (!originalSet.has(card.heldId)) results.push({ cardId: card.heldId, passed: false, findingsComplete: true });
+  }
   const health = evaluatePoolHealth({
     originalCardIds: originalIds,
     results,
@@ -300,7 +356,9 @@ export async function exportDesignSet(input: {
     cardIds: coverIds,
   }, null, 2) + "\n");
 
-  const manifestSha = createHash("sha256").update(readFileSync(manifestPath)).digest("hex");
+  const manifestSha = existsSync(manifestPath)
+    ? createHash("sha256").update(readFileSync(manifestPath)).digest("hex")
+    : null;
   const reconciliation = {
     setId: input.target.id,
     slug: input.target.slug,
@@ -333,6 +391,10 @@ export async function exportDesignSet(input: {
     coverApproved: false,
     findingsComplete: health.findingsComplete,
     thresholdClaimed: health.thresholdClaimed,
+    membershipSource: input.membership?.source ?? (existsSync(manifestPath) ? "file" : input.mode === "source" ? "discovery" : "initialized"),
+    membershipMismatch: input.membership?.mismatch ?? false,
+    witnessStatus: input.membership?.witness ?? "uninitialized",
+    maskRevision: input.membership?.maskRevision ?? "uninitialized",
   };
   const packetMissing = reviewReady ? reviewPacketMissing(directory, originalIds).filter((name) => name !== "reconciliation.json") : ["source-only"];
   const packetReady = reviewReady && packetMissing.length === 0;

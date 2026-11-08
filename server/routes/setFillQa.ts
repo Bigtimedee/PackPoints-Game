@@ -4,10 +4,11 @@
  * blank, or a bad header is 404. A query param token is ignored.
  *
  * POST /api/qa/sets/:setId/fill-missing
- *   {} or { dryRun: true } -> 200, no job and no supplier call.
+ *   {} or { dryRun: true } -> 202 dry-run job for an existing fill set.
+ *   Expansion ids reject {} with 400 explicit_mode_required.
  *   { supplierPreview: true } -> 202 read-only job. Never inserts.
  *   { dryRun: false, confirmImport: true } -> 202 insert job.
- *   A null base count refuses the insert job with 409 base_count_unverified.
+ *   A null base count is held_discovery. It is not a refusal.
  * GET  /api/qa/sets/:setId/fill-missing/:jobId -> job state + report
  *
  * POST /api/qa/sets/:setId/fill-missing/prepare { cardIds: uuid[] (1-200) } -> 202 { jobId }

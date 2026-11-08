@@ -62,6 +62,46 @@ export async function recordOriginalMembership(input: {
   return { stored: true, unchanged: (inserted.rowCount ?? 0) === 0 };
 }
 
+export type StoredMembership = {
+  ids: string[];
+  hash: string;
+  /** Length of the id list. The original_count column is not this value. */
+  count: number;
+  sourceWitness: string;
+  maskVersion: string;
+  submittedAt: string;
+};
+
+/** The id list and its hash are the membership. A matching count is not. */
+export async function readOriginalMembership(setId: string): Promise<StoredMembership | { unreadable: true } | null> {
+  const winner = await pool.query<{
+    manifest_sha256: string;
+    card_ids: string[] | string;
+    source_witness: string;
+    mask_version: string;
+    submitted_at: Date | string;
+  }>(
+    `SELECT manifest_sha256, card_ids, source_witness, mask_version, submitted_at
+     FROM design_pool_submissions WHERE set_id = $1`,
+    [setId],
+  );
+  const row = winner.rows[0];
+  if (!row) return null;
+  const rawIds = Array.isArray(row.card_ids) ? row.card_ids : [];
+  const membership = canonicalMembership(rawIds);
+  if (membership.hash !== row.manifest_sha256) return { unreadable: true };
+  if (!membershipMatches(membership, { ids: membership.ids, hash: row.manifest_sha256 })) return { unreadable: true };
+  const submitted = row.submitted_at instanceof Date ? row.submitted_at.toISOString() : String(row.submitted_at);
+  return {
+    ids: membership.ids,
+    hash: membership.hash,
+    count: membership.ids.length,
+    sourceWitness: row.source_witness,
+    maskVersion: row.mask_version,
+    submittedAt: submitted,
+  };
+}
+
 export function witnessDigest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }

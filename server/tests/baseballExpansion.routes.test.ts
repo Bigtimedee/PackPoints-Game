@@ -7,7 +7,8 @@ import { eq, inArray } from "drizzle-orm";
 import { designPoolSubmissions, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { insertIntegratedGameSet } from "../services/baseballExpansion/createIntegratedSet";
-import { recordOriginalMembership } from "../services/baseballExpansion/store";
+import { pool } from "../db";
+import { readOriginalMembership, recordOriginalMembership } from "../services/baseballExpansion/store";
 
 const setId = "abababab-abab-4aba-8aba-ababababab10";
 const ownA = "dddddddd-dddd-4ddd-8ddd-ddddddddddd4";
@@ -47,5 +48,9 @@ describe("original pool winner", () => {
       setId, slug: "1973-topps", cardIds: [foreignCard], sources: [{ id: foreignCard, sourceUrl: "https://img.example/f.jpg" }],
     });
     expect(foreign).toMatchObject({ stored: false, code: "foreign_card" });
+    await pool.query("UPDATE design_pool_submissions SET original_count = 99 WHERE set_id = $1", [setId]);
+    const loaded = await readOriginalMembership(setId);
+    expect(loaded && "ids" in loaded ? loaded.ids : []).toEqual(winner);
+    expect(loaded && "count" in loaded ? loaded.count : 0).toBe(winner.length);
   });
 });
