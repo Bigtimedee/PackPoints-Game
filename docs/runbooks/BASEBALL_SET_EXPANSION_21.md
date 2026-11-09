@@ -125,6 +125,18 @@ SELECT to_regclass('public.design_pool_submissions');
 
 Confirm the backup directory on the volume is readable and the newest dump file is non-empty. `planCanonicalBackfill` is a read-only collision report an operator can run in a shell; boot does not call it. No production action is taken from this repository.
 
+## Per-card serve
+
+Source acceptance, exact-output approval, per-card serve clearance, and the set-clearance attempt are four writes. A renderer success does not create them, and neither does a card count. The approved opaque JPEG is the byte string a later cleared serve would return. The binding is the original source SHA, the set and member, the polygon, the renderer id, and the opaque native and 300 hashes. A mismatch returns no image. Missing expansion sets do not fall through to a default mask. Live sets keep their registered profiles.
+
+The expansion release floor is 35 gameplay-eligible cards. `PUBLIC_SET_MIN_ELIGIBLE_CARDS` stays 5, so this floor does not unpublish a set that is already public. 1991 Upper Deck is refused on this path. Public set, cover, game start, play mask, and Daily 5 stay held.
+
+Dave's release rule, received Nov 9 2026 at 10:36 AM CST, is an explicit manifest of at least 35 fully approved playable cards. Every card not on that manifest stays held. One unapproved card refuses the whole manifest. Discovery-wide 95% is not a remaining-expansion release prerequisite. The recorded 1986 Fleer discovery inventory remains 448 and is not rewritten. `evaluateCohortHealth` and `evaluatePoolHealth` still exist for their own reports. They do not clear a set. Live sets are unchanged. 1991 Upper Deck cannot be released on this path. Daily 5 is not enrolled by the manifest; a later enrollment still cannot deal a card that is off the manifest.
+
+`evaluateExactOutputPrecheck` separates three pixel classes. Solid fill is opaque within 28 of `#c4a574` and at least 30 away from the source. An antialiased edge is paint that moved the source but missed that 28 gate on the center-inside boundary; it is not an interior hole and it is not a reason to enlarge the polygon. Name ink whose center is outside the plate and was not painted still holds. The function does not approve a card or clear a set. The 28 and 30 gates are unchanged.
+
+The tables are `expansion_source_acceptances`, `expansion_output_approvals`, `expansion_serve_clearances`, and `expansion_set_clearance_attempts` in `shared/schema.ts`. The attempt code cannot be `authorized`. No production cohort, acceptance, or publish is part of this change.
+
 ## CI
 
 The unit-test job is the gate. Playwright is `if: false`. The live SEO name-leak step exits 0 with a warning when `PACKPTS_QA_TOKEN` is unset, so a green workflow does not mean that live check ran. The offline surname fixture is the hard SEO gate.

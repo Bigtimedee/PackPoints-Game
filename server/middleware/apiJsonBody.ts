@@ -35,13 +35,16 @@ export const COHORT_DOCUMENT_BOUNDS = {
 
 const COHORT_POST = /^\/api\/qa\/baseball-expansion\/([^/]+)\/discovery-cohort$/;
 const STAGE_POST = /^\/api\/qa\/baseball-expansion\/([^/]+)\/discovery-cohort\/stage$/;
+const OUTPUT_POST = /^\/api\/qa\/baseball-expansion\/([^/]+)\/discovery-cohort\/output-approval$/;
 
-export function largeQaJsonPost(method: string, path: string): { kind: "cohort" | "stage"; setId: string } | null {
+export function largeQaJsonPost(method: string, path: string): { kind: "cohort" | "stage" | "output"; setId: string } | null {
   if (method !== "POST") return null;
   const cohort = COHORT_POST.exec(path);
   if (cohort?.[1]) return { kind: "cohort", setId: cohort[1] };
   const stage = STAGE_POST.exec(path);
   if (stage?.[1]) return { kind: "stage", setId: stage[1] };
+  const output = OUTPUT_POST.exec(path);
+  if (output?.[1]) return { kind: "output", setId: output[1] };
   return null;
 }
 
@@ -190,7 +193,7 @@ export function installApiJsonParser(app: Express): void {
       discardUnauthorizedBody(req, res);
       return;
     }
-    const limit = large.kind === "stage" ? STAGE_JSON_LIMIT : COHORT_JSON_LIMIT;
+    const limit = large.kind === "cohort" ? COHORT_JSON_LIMIT : STAGE_JSON_LIMIT;
     const declared = declaredLength(req);
     if (declared != null && declared > limit) {
       rememberSocketDelta(req, () => 0);
@@ -198,6 +201,6 @@ export function installApiJsonParser(app: Express): void {
       cutUpload(req, 0);
       return;
     }
-    return (large.kind === "stage" ? stage : cohort)(req, res, next);
+    return (large.kind === "cohort" ? cohort : stage)(req, res, next);
   });
 }

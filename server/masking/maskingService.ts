@@ -8,7 +8,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { applyServedRotation, orientationOcrBudgetMs, uprightCardImage } from "./cardOrientation";
 import { isMissingExpansionId } from "../services/baseballExpansion/registry";
-import { getMaskProfile, hoopsBottomBakeIsStale, HOOPS_1990_PROFILE_ID, logDealtDefaultMaskProfiles, profileIsRegistered } from "./maskProfiles";
+import { applyExpansionServe, expansionServeFacts } from "../services/baseballExpansion/perCardRelease";
+import { getMaskProfile, hoopsBottomBakeIsStale, HOOPS_1990_PROFILE_ID, logDealtDefaultMaskProfiles } from "./maskProfiles";
 import { recognizeWords, resetOcrRuntimeForTests } from "./ocrRuntime";
 import {
   clearOrientNote,
@@ -499,6 +500,17 @@ export async function getMaskedImagePath(
   }
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
   if (isMaskBandExcluded(cardId)) return null;
+  const expansion = applyExpansionServe(await expansionServeFacts(cardId));
+  if (expansion.action === "refuse") {
+    coverageRefusals.set(cardId, expansion.code);
+    return null;
+  }
+  if (expansion.action === "serve") {
+    await fs.mkdir(MASKED_CARDS_DIR, { recursive: true });
+    const servedName = warmMaskedFilename(cardId);
+    await fs.writeFile(path.join(MASKED_CARDS_DIR, servedName), expansion.bytes);
+    return servedName;
+  }
   const boundState = await readBoundSourceState(cardId);
   if (boundState.kind === "refused") return null;
 
@@ -604,7 +616,9 @@ async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "
     .where(eq(cardImageMaskCache.cardId, cardId))
     .limit(1);
 
+  const expansionSet = Boolean(gameSetId && isMissingExpansionId(gameSetId));
   if (
+    !expansionSet &&
     cached &&
     cached.rawImageUrl === imageUrl &&
     cached.maskVersion === CURRENT_MASK_VERSION
@@ -651,11 +665,8 @@ export async function bakeMaskedCardFromUrl(
     ? createHash("sha256").update(input.sourceBuffer).digest("hex")
     : null;
   if (input.gameSetId && isMissingExpansionId(input.gameSetId)) {
-    const profile = getMaskProfile(input.setHint, input.gameSetId);
-    if (!profileIsRegistered(profile, input.gameSetId)) {
-      coverageRefusals.set(cardId, "unprofiled_expansion_set");
-      return null;
-    }
+    coverageRefusals.set(cardId, "unprofiled_expansion_set");
+    return null;
   }
   if (recropPermanentlyExcluded(cardId)) return null;
   const alreadyRefused = readMaskFailureReason(cardId);

@@ -3,7 +3,7 @@
  */
 import { createHash } from "crypto";
 import express from "express";
-import { mkdir, rm, writeFile } from "fs/promises";
+import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import path from "path";
@@ -23,7 +23,7 @@ vi.mock("../services/cardhedge/client", async (orig) => {
 });
 
 const { db } = await import("../db");
-const { cardImageMaskCache, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals, playableCards } = await import("@shared/schema");
+const { cardImageMaskCache, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, expansionOutputApprovals, expansionReleaseManifests, expansionReleaseMembers, expansionServeClearances, expansionSourceAcceptances, gameSets, geometryProposals, playableCards } = await import("@shared/schema");
 const { insertIntegratedGameSet } = await import("../services/baseballExpansion/createIntegratedSet");
 const { fillMissingCards } = await import("../services/setFillMissing");
 const { sendUnmaskedCard } = await import("../services/playImageSend");
@@ -183,6 +183,11 @@ describe("discovery cohort persistence", () => {
   const supplierB = "supplier-synth-b";
 
   async function resetCohort(setId: string) {
+    await db.delete(expansionReleaseMembers).where(eq(expansionReleaseMembers.setId, setId));
+    await db.delete(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, setId));
+    await db.delete(expansionServeClearances).where(eq(expansionServeClearances.setId, setId));
+    await db.delete(expansionOutputApprovals).where(eq(expansionOutputApprovals.setId, setId));
+    await db.delete(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.setId, setId));
     await db.update(discoveryCohortMembers).set({ playableCardId: null }).where(eq(discoveryCohortMembers.setId, setId));
     await db.delete(discoveryImportProvenance).where(eq(discoveryImportProvenance.setId, setId));
     await db.delete(playableCards).where(eq(playableCards.cardhedgeCardId, supplierA));
@@ -524,7 +529,8 @@ describe("discovery cohort persistence", () => {
       const baked = await getMaskedImagePath(cardId);
       expect(baked).toBeNull();
       expect(baked).not.toBe(staleName);
-      expect(takeBoundBakeSourceShaForTests()).toBe(state.sha256);
+      expect(takeBoundBakeSourceShaForTests()).toBeNull();
+      expect(await readFile(path.join(MASKED_CARDS_DIR, staleName))).toEqual(staleBytes);
       expect(state.bytes.equals(jpeg)).toBe(true);
       expect(bakeFetches).toBe(0);
       resetPublicMaskSetCacheForTests();

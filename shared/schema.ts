@@ -5401,3 +5401,107 @@ export const geometryProposals = pgTable("geometry_proposals", {
 }, (table) => [
   check("geometry_proposals_not_approved", sql`${table.approval} = false`),
 ]);
+
+/**
+ * Staff source acceptance for one discovery member. Distinct from
+ * discovery_import_provenance.source_accepted, which stays false.
+ */
+export const expansionSourceAcceptances = pgTable("expansion_source_acceptances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  sourceSha256: varchar("source_sha256", { length: 64 }).notNull(),
+  evidenceRef: text("evidence_ref").notNull(),
+  acceptedBy: text("accepted_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_expansion_source_acceptance_member").on(table.memberKey),
+]);
+
+/** Exact opaque bytes approved for one member. Renderer success does not write this row. */
+export const expansionOutputApprovals = pgTable("expansion_output_approvals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  acceptanceId: uuid("acceptance_id").notNull().references(() => expansionSourceAcceptances.id),
+  proposalId: uuid("proposal_id").notNull().references(() => geometryProposals.id),
+  sourceSha256: varchar("source_sha256", { length: 64 }).notNull(),
+  polygonCanonical: text("polygon_canonical").notNull(),
+  polygonSha256: varchar("polygon_sha256", { length: 64 }).notNull(),
+  geometryVersion: text("geometry_version").notNull(),
+  rendererId: text("renderer_id").notNull(),
+  nativeSha256: varchar("native_sha256", { length: 64 }).notNull(),
+  preview300Sha256: varchar("preview_300_sha256", { length: 64 }).notNull(),
+  nativeBytes: bytea("native_bytes").notNull(),
+  preview300Bytes: bytea("preview_300_bytes").notNull(),
+  evidenceRef: text("evidence_ref").notNull(),
+  approvedBy: text("approved_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_expansion_output_member").on(table.memberKey),
+]);
+
+/** Per-card serve clearance. It does not clear the set. */
+export const expansionServeClearances = pgTable("expansion_serve_clearances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  outputApprovalId: uuid("output_approval_id").notNull().references(() => expansionOutputApprovals.id),
+  evidenceRef: text("evidence_ref").notNull(),
+  clearedBy: text("cleared_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_expansion_serve_member").on(table.memberKey),
+]);
+
+/**
+ * Audit of set-clearance attempts. A `released` row is written only together
+ * with an expansion_release_manifests row. Renderer success does not write it.
+ */
+export const expansionSetClearanceAttempts = pgTable("expansion_set_clearance_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => gameSets.id),
+  eligibleCount: integer("eligible_count").notNull(),
+  discoveryCount: integer("discovery_count").notNull(),
+  code: text("code").notNull(),
+  evidenceRef: text("evidence_ref").notNull(),
+  attemptedBy: text("attempted_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Explicit versioned release list. Discovery membership is not rewritten.
+ * Every listed member was fully approved. Cards not listed stay held.
+ */
+export const expansionReleaseManifests = pgTable("expansion_release_manifests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  version: integer("version").notNull(),
+  evidenceRef: text("evidence_ref").notNull(),
+  clearedBy: text("cleared_by").notNull(),
+  memberCount: integer("member_count").notNull(),
+  releasedMembershipSha256: varchar("released_membership_sha256", { length: 64 }).notNull(),
+  discoveryMembershipSha256: varchar("discovery_membership_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedBy: text("revoked_by"),
+  revocationEvidenceRef: text("revocation_evidence_ref"),
+}, (table) => [
+  uniqueIndex("uq_expansion_release_version").on(table.setId, table.version),
+  uniqueIndex("uq_expansion_release_active").on(table.setId).where(sql`${table.revokedAt} IS NULL`),
+  check("expansion_release_min_members", sql`${table.memberCount} >= 35`),
+]);
+
+export const expansionReleaseMembers = pgTable("expansion_release_members", {
+  manifestId: uuid("manifest_id").notNull().references(() => expansionReleaseManifests.id),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  setId: varchar("set_id").notNull(),
+  sourceSha256: varchar("source_sha256", { length: 64 }).notNull(),
+  nativeSha256: varchar("native_sha256", { length: 64 }).notNull(),
+  preview300Sha256: varchar("preview_300_sha256", { length: 64 }).notNull(),
+  polygonSha256: varchar("polygon_sha256", { length: 64 }).notNull(),
+  rendererId: text("renderer_id").notNull(),
+  proposalId: uuid("proposal_id").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.manifestId, table.memberKey] }),
+]);

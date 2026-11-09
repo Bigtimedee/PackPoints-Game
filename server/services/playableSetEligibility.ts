@@ -67,7 +67,28 @@ export function eligibleDealFilter(alias: CardAlias, opts?: BlocklistSqlOpts, ig
     )
     AND ${cardNotBlockedSql(alias, opts)}
     AND ${subsetStillUnverified(alias)}
+    AND ${expansionReleaseDealSql(alias)}
   `;
+}
+
+/**
+ * A discovery cohort may be dealt only from its active release manifest.
+ * Live sets have no cohort, so this clause does not change them.
+ * An expansion card that is not on that manifest stays out of solo, deal, and cover picks.
+ */
+export function expansionReleaseDealSql(alias: CardAlias): SQL {
+  const id = sql.raw(`${alias}.id`);
+  const setId = sql.raw(`${alias}.game_set_id`);
+  return sql`(
+    NOT EXISTS (SELECT 1 FROM discovery_cohorts dc WHERE dc.set_id = ${setId})
+    OR ${id} IN (
+      SELECT dm.playable_card_id
+      FROM expansion_release_members rm
+      INNER JOIN expansion_release_manifests mf ON mf.id = rm.manifest_id AND mf.revoked_at IS NULL
+      INNER JOIN discovery_cohort_members dm ON dm.member_key = rm.member_key
+      WHERE dm.playable_card_id IS NOT NULL
+    )
+  )`;
 }
 
 /**
