@@ -133,6 +133,8 @@ The expansion release floor is 35 gameplay-eligible cards. `PUBLIC_SET_MIN_ELIGI
 
 Set clearance stays `release_denominator_unresolved`. `evaluateCohortHealth` divides by the original discovery member list. `evaluatePoolHealth` divides by the original submitted playable-id list. Both rates are 95%, and this release does not pick which list is the denominator. The recorded 1986 Fleer candidate inventory remains 448. A shorter synthetic cohort is not that inventory.
 
+`evaluateExactOutputPrecheck` separates three pixel classes. Solid fill is opaque within 28 of `#c4a574` and at least 30 away from the source. An antialiased edge is paint that moved the source but missed that 28 gate on the center-inside boundary; it is not an interior hole and it is not a reason to enlarge the polygon. Name ink whose center is outside the plate and was not painted still holds. The function does not approve a card or clear a set. The 28 and 30 gates are unchanged.
+
 The tables are `expansion_source_acceptances`, `expansion_output_approvals`, `expansion_serve_clearances`, and `expansion_set_clearance_attempts` in `shared/schema.ts`. The attempt code cannot be `authorized`. No production cohort, acceptance, or publish is part of this change.
 
 ## CI
