@@ -436,7 +436,7 @@ export async function stageExactSource(setId: string, supplierId: string, bytes:
 export async function loadExactSourceGate(setId: string): Promise<(supplierId: string, cardNumber: string | null) => string | null> {
   const [cohort] = await db.select({ setId: discoveryCohorts.setId }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, setId)).limit(1);
   if (!cohort) {
-    if (setId.toLowerCase() === UD_1991_DISCOVERY.setId) return () => "exact_source_required";
+    if (isMissingExpansionId(setId)) return () => "exact_source_required";
     return () => null;
   }
   const members = await db.select().from(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, setId));
@@ -572,7 +572,7 @@ export async function insertGuardedPlayable(input: {
 }
 
 export async function cohortGuardsImport(setId: string): Promise<boolean> {
-  if (setId.toLowerCase() === UD_1991_DISCOVERY.setId) return true;
+  if (isMissingExpansionId(setId)) return true;
   const [cohort] = await db.select({ setId: discoveryCohorts.setId }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, setId)).limit(1);
   return Boolean(cohort);
 }
