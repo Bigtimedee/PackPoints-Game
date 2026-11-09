@@ -6,7 +6,7 @@ import { createHash } from "crypto";
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
-import type { AddressInfo } from "net";
+import net, { type AddressInfo } from "net";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   COHORT_JSON_LIMIT,
@@ -14,6 +14,7 @@ import {
   STAGE_JSON_LIMIT,
   installApiJsonParser,
   stageBase64CharCap,
+  takeUploadReadForTests,
 } from "../middleware/apiJsonBody";
 import { registerDiscoveryCohortRoutes } from "../routes/discoveryCohortQa";
 import { UD_1991_DISCOVERY, readDiscoveryCohort } from "../services/baseballExpansion/discoveryCohort";
@@ -42,6 +43,53 @@ function cohortBody(): string {
   return JSON.stringify({
     artifactSha256: UD_1991_DISCOVERY.artifactSha256,
     members: Array.from({ length: 486 }, (_, index) => member(index + 1)),
+  });
+}
+
+function withinOrdinaryCeiling(read: { stream: number; socket: number }, sent: number): void {
+  const ceiling = DEFAULT_JSON_LIMIT + 64 * 1024;
+  expect(read.stream).toBeLessThanOrEqual(ceiling);
+  expect(read.socket).toBeLessThanOrEqual(ceiling);
+  expect(read.stream).toBeLessThan(sent);
+  expect(read.socket).toBeLessThan(sent);
+}
+
+async function readAfterClose(): Promise<{ stream: number; socket: number }> {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return takeUploadReadForTests();
+}
+
+function blastUpload(port: number, path: string, bytes: number, chunked: boolean, tokenHeader?: string): Promise<{ status: number | null; text: string }> {
+  return new Promise((resolve) => {
+    const sock = net.connect(port, "127.0.0.1");
+    let received = Buffer.alloc(0);
+    const payload = Buffer.alloc(bytes, 0x61);
+    const finish = () => {
+      const text = received.toString("utf8");
+      const status = Number((text.match(/HTTP\/1\.1 (\d+)/) || [])[1] || 0) || null;
+      resolve({ status, text });
+    };
+    sock.on("data", (chunk) => { received = Buffer.concat([received, chunk]); });
+    sock.on("error", () => {});
+    sock.on("close", finish);
+    sock.on("connect", () => {
+      let head = `POST ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n`;
+      if (tokenHeader) head += `X-QA-Token: ${tokenHeader}\r\n`;
+      let packet: Buffer;
+      if (chunked) {
+        const frames = [Buffer.from(`${head}Transfer-Encoding: chunked\r\n\r\n`)];
+        const size = 16 * 1024;
+        for (let offset = 0; offset < payload.length; offset += size) {
+          const n = Math.min(size, payload.length - offset);
+          frames.push(Buffer.from(n.toString(16) + "\r\n"), payload.subarray(offset, offset + n), Buffer.from("\r\n"));
+        }
+        frames.push(Buffer.from("0\r\n\r\n"));
+        packet = Buffer.concat(frames);
+      } else {
+        packet = Buffer.concat([Buffer.from(`${head}Content-Length: ${payload.length}\r\n\r\n`), payload]);
+      }
+      sock.write(packet);
+    });
   });
 }
 
@@ -83,13 +131,25 @@ describe("discovery cohort HTTP parser", () => {
     const unauthenticated = await fetch(cohortUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body });
     expect(unauthenticated.status).toBe(404);
     expect(await unauthenticated.text()).not.toContain(token);
+    withinOrdinaryCeiling(await readAfterClose(), Buffer.byteLength(body));
 
     const wrongSet = await fetch(`${base}/api/qa/baseball-expansion/${LIVE}/discovery-cohort`, { method: "POST", headers, body });
     expect(wrongSet.status).toBe(404);
+    withinOrdinaryCeiling(await readAfterClose(), Buffer.byteLength(body));
+
+    const wrongToken = await fetch(cohortUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-QA-Token": "wrong-token" },
+      body,
+    });
+    expect(wrongToken.status).toBe(404);
+    expect(await wrongToken.text()).not.toContain("wrong-token");
+    withinOrdinaryCeiling(await readAfterClose(), Buffer.byteLength(body));
 
     delete process.env.COVER_QA_TOKEN;
     const disabled = await fetch(cohortUrl, { method: "POST", headers, body });
     expect(disabled.status).toBe(404);
+    withinOrdinaryCeiling(await readAfterClose(), Buffer.byteLength(body));
     process.env.COVER_QA_TOKEN = token;
 
     const logged: string[] = [];
@@ -170,5 +230,35 @@ describe("discovery cohort HTTP parser", () => {
       body: JSON.stringify({ supplierId: "supplier-synth-0001", imageBase64: "A".repeat(STAGE_JSON_LIMIT) }),
     });
     expect(overStage.status).toBe(413);
+
+    const port = Number(new URL(base).port);
+    const cohortPath = `/api/qa/baseball-expansion/${UD}/discovery-cohort`;
+    const stagePath = `/api/qa/baseball-expansion/${UD}/discovery-cohort/stage`;
+    const chunked = await blastUpload(port, cohortPath, COHORT_JSON_LIMIT + 64 * 1024, true);
+    expect(chunked.status).toBe(404);
+    expect(chunked.text).toContain("Not found");
+    expect(chunked.text).not.toContain(token);
+    const chunkedRead = await readAfterClose();
+    expect(chunkedRead.stream).toBeGreaterThan(0);
+    withinOrdinaryCeiling(chunkedRead, COHORT_JSON_LIMIT + 64 * 1024);
+
+    const declared = await blastUpload(port, stagePath, STAGE_JSON_LIMIT + 64 * 1024, false);
+    expect(declared.status).toBe(404);
+    const declaredRead = await readAfterClose();
+    expect(declaredRead.stream).toBe(0);
+    withinOrdinaryCeiling(declaredRead, STAGE_JSON_LIMIT + 64 * 1024);
+
+    const healthy = await fetch(`${base}/api/control`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pad: "ok" }),
+    });
+    expect(healthy.status).toBe(200);
+    const stillClosed = await fetch(cohortUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(stillClosed.status).toBe(404);
   });
 });

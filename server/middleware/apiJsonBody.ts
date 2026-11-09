@@ -82,6 +82,7 @@ function declaredLength(req: Request): number | null {
 function sendQaNotFound(res: Response): void {
   applyNoStoreHeaders(res);
   res.setHeader("X-Robots-Tag", "noindex");
+  res.setHeader("Connection", "close");
   const body = JSON.stringify({ error: "Not found" });
   res.status(404);
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -94,7 +95,67 @@ function sendEntityTooLarge(res: Response): void {
   res.status(413);
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Length", Buffer.byteLength(body));
+  res.setHeader("Connection", "close");
   res.end(body);
+}
+
+/**
+ * Bytes this process pulled off the socket after the auth decision.
+ * A declared oversized body is cut without a reader, so both numbers stay near zero.
+ * A chunked body is discarded only until the ordinary 100KB ceiling, then the socket is destroyed.
+ */
+let lastUploadRead = { stream: 0, socket: 0 };
+let uploadReadGeneration = 0;
+
+export function takeUploadReadForTests(): { stream: number; socket: number } {
+  const value = lastUploadRead;
+  lastUploadRead = { stream: 0, socket: 0 };
+  return value;
+}
+
+function cutUpload(req: Request, streamBytes: number): void {
+  lastUploadRead = { ...lastUploadRead, stream: streamBytes };
+  req.pause();
+  const sock = req.socket;
+  if (sock && !sock.destroyed) sock.destroy();
+}
+
+function rememberSocketDelta(req: Request, streamBytes: () => number): void {
+  const sock = req.socket;
+  if (!sock) return;
+  const started = sock.bytesRead;
+  const generation = ++uploadReadGeneration;
+  sock.once("close", () => {
+    if (generation !== uploadReadGeneration) return;
+    lastUploadRead = {
+      stream: streamBytes(),
+      socket: Math.max(0, sock.bytesRead - started),
+    };
+  });
+}
+
+/**
+ * Auth already failed. Do not JSON.parse. Node will otherwise resume the
+ * request after res.end() and read a chunked or declared body with no ceiling.
+ * A Content-Length above 100KB is destroyed after the 404. A chunked body is
+ * discarded only up to that same ordinary ceiling.
+ */
+function discardUnauthorizedBody(req: Request, res: Response): void {
+  const declared = declaredLength(req);
+  let read = 0;
+  rememberSocketDelta(req, () => read);
+  req.on("error", () => cutUpload(req, read));
+  if (declared != null && declared > DEFAULT_JSON_LIMIT) {
+    sendQaNotFound(res);
+    cutUpload(req, 0);
+    return;
+  }
+  req.on("data", (chunk: Buffer) => {
+    read += chunk.length;
+    if (read > DEFAULT_JSON_LIMIT) cutUpload(req, read);
+  });
+  req.on("end", () => { lastUploadRead = { ...lastUploadRead, stream: read }; });
+  sendQaNotFound(res);
 }
 
 function boundedJson(limit: number, keepRaw: boolean) {
@@ -126,13 +187,15 @@ export function installApiJsonParser(app: Express): void {
     if (!large) return ordinary(req, res, next);
     stripConditionalValidators(req);
     if (!coverQaEnabled() || !coverQaHeaderMatches(req.get("x-qa-token")) || !isMissingExpansionId(large.setId)) {
-      sendQaNotFound(res);
+      discardUnauthorizedBody(req, res);
       return;
     }
     const limit = large.kind === "stage" ? STAGE_JSON_LIMIT : COHORT_JSON_LIMIT;
     const declared = declaredLength(req);
     if (declared != null && declared > limit) {
+      rememberSocketDelta(req, () => 0);
       sendEntityTooLarge(res);
+      cutUpload(req, 0);
       return;
     }
     return (large.kind === "stage" ? stage : cohort)(req, res, next);
