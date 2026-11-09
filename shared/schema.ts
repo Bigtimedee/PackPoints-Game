@@ -5158,6 +5158,7 @@ export const igPostQueue = pgTable("ig_post_queue", {
   abTestId: varchar("ab_test_id", { length: 64 }),
   publishedAt: timestamptz("published_at"),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
+  capacityDay: date("capacity_day"),
 }, (table) => [
   index("idx_ig_post_queue_status_scheduled").on(table.status, table.scheduledFor),
   index("idx_ig_post_queue_kind_status").on(table.kind, table.status),
@@ -5168,6 +5169,22 @@ export const igPostQueue = pgTable("ig_post_queue", {
   check("ig_post_queue_variant_check", sql`${table.variant} IS NULL OR ${table.variant} IN ('A', 'B')`),
 ]);
 export type IgPostQueue = typeof igPostQueue.$inferSelect;
+
+// One row per Instagram publish that counts toward the five-post Central day.
+// slot is 1..5, so a sixth insert for that platform and account_day cannot land.
+// post_id is unique so one queue row cannot hold two days. drizzle-kit push
+// drops tables missing from this file.
+export const igPublishDaySlot = pgTable("ig_publish_day_slot", {
+  platform: varchar("platform", { length: 2 }).notNull().default("ig"),
+  accountDay: date("account_day").notNull(),
+  slot: integer("slot").notNull(),
+  postId: integer("post_id").notNull().references(() => igPostQueue.id),
+}, (table) => [
+  primaryKey({ columns: [table.platform, table.accountDay, table.slot] }),
+  unique("ig_publish_day_slot_post").on(table.postId),
+  check("ig_publish_day_slot_range", sql`${table.slot} BETWEEN 1 AND 5`),
+  check("ig_publish_day_slot_platform", sql`${table.platform} IN ('ig', 'fb')`),
+]);
 
 // Referral reward decisions (one row per invited user). Fraud limits, the
 // 60-day hold and clawbacks live here; the points themselves stay in the ledger.
