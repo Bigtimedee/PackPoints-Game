@@ -1,7 +1,11 @@
 import { createReadStream, existsSync, readFileSync, readdirSync } from "fs";
 import path from "path";
 import type { Request, Response } from "express";
+import { eq } from "drizzle-orm";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
+import { playableCards } from "@shared/schema";
+import { db } from "../db";
+import { isMissingExpansionId } from "../services/baseballExpansion/registry";
 import { isPlayScope, maskTokenMatches } from "../services/playImageToken";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
@@ -125,6 +129,25 @@ export function findWarmMaskedPath(args: {
   return null;
 }
 
+/**
+ * Schema is not ready, so the expansion binding tables cannot be trusted.
+ * A live set id is the only class that may use a warm file. Expansion, stopped,
+ * and any lookup that fails stay closed.
+ */
+export async function bootWarmServeClass(cardId: string): Promise<"legacy" | "closed"> {
+  try {
+    const [card] = await db
+      .select({ gameSetId: playableCards.gameSetId })
+      .from(playableCards)
+      .where(eq(playableCards.id, cardId))
+      .limit(1);
+    if (!card?.gameSetId || isMissingExpansionId(card.gameSetId)) return "closed";
+    return "legacy";
+  } catch {
+    return "closed";
+  }
+}
+
 export async function tryServeWarmMasked(req: Request, res: Response): Promise<boolean> {
   const parsed = parseMaskedPlayPath(req.path);
   if (!parsed) return false;
@@ -142,6 +165,7 @@ export async function tryServeWarmMasked(req: Request, res: Response): Promise<b
     denyPublicMask(req, res);
     return true;
   }
+  if (await bootWarmServeClass(cardId) !== "legacy") return false;
   const etag = `"${CURRENT_MASK_VERSION}"`;
   res.setHeader("Content-Type", "image/jpeg");
   res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
