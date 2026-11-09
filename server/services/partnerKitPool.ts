@@ -11,6 +11,7 @@ import { eligibleKitCardIds, pickKitCardId } from "@shared/partnerKit";
 import { db } from "../db";
 import { clearedSetIds, ensureHeldSets, holdReasonForIdentity, isDesignApprovedSetId } from "../config/heldSets";
 import { eligibleDealFilter } from "./playableSetEligibility";
+import { publicExpansionImage } from "./baseballExpansion/perCardRelease";
 import { cachedCoverCardIds, readyMaskedCardIds } from "./setCovers";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
@@ -83,6 +84,9 @@ async function loadUncached(dayKey: string): Promise<KitMaskedCard | null> {
   });
   const cardId = pickKitCardId(dayKey, eligible);
   if (!cardId) return null;
+  const expansion = await publicExpansionImage(cardId);
+  if (expansion.kind === "closed") return null;
+  if (expansion.kind === "serve") return { cardId, bytes: expansion.bytes };
   const file = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
   if (!file || /unmasked/i.test(file)) return null;
   return { cardId, bytes: readFileSync(file) };

@@ -9,6 +9,7 @@ import { eq, sql } from "drizzle-orm";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { holdReasonForIdentity } from "../config/heldSets";
+import { expansionSetIsCleared } from "../services/baseballExpansion/perCardRelease";
 import { refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 
@@ -57,21 +58,22 @@ async function setGate(setId: string): Promise<SetGate> {
     .from(gameSets)
     .where(eq(gameSets.id, setId))
     .limit(1);
+  let held = false;
+  if (row) {
+    held = holdReasonForIdentity({
+      id: row.id,
+      year: row.year,
+      brand: row.brand,
+      sport: row.sport,
+      setName: row.setName,
+      isActive: row.isActive,
+      isUserCreated: row.isUserCreated,
+    }) != null;
+    if (held && await expansionSetIsCleared(row.id)) held = false;
+  }
   const entry: SetGate = !row
     ? { exists: false, held: false, at: now }
-    : {
-      exists: true,
-      held: holdReasonForIdentity({
-        id: row.id,
-        year: row.year,
-        brand: row.brand,
-        sport: row.sport,
-        setName: row.setName,
-        isActive: row.isActive,
-        isUserCreated: row.isUserCreated,
-      }) != null,
-      at: now,
-    };
+    : { exists: true, held, at: now };
   setGates.set(key, entry);
   return entry;
 }

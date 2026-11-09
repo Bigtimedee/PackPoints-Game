@@ -396,6 +396,90 @@ export async function inspectBoundServe(cardId: string): Promise<{ kind: "bound_
   return { kind: "bound_held", bytes: asBuffer(output!.nativeBytes)! };
 }
 
+const EXPANSION_SERVE_REFUSALS = new Set<string>([
+  "ud_stopped",
+  "not_expansion",
+  "not_released",
+  "card_unbound",
+  "output_unapproved",
+  "output_hash_mismatch",
+  "serve_unbound",
+  "source_unaccepted",
+  "member_mismatch",
+  "set_mismatch",
+  "renderer_mismatch",
+  "polygon_rejected",
+  "proposal_mismatch",
+  "evidence_required",
+  "not_importable",
+  "below_expansion_minimum",
+  "membership_mismatch",
+  "release_version_mismatch",
+  "release_already_active",
+  "release_revoked",
+  "acceptance_conflict",
+  "output_conflict",
+  "serve_conflict",
+  "source_drift",
+]);
+
+export function isExpansionServeRefusal(code: string | null | undefined): boolean {
+  return !!code && EXPANSION_SERVE_REFUSALS.has(code);
+}
+
+/** Playable ids the public mask would serve, in card-number order. */
+export async function releasedExpansionCoverIds(setId: string, limit = 8): Promise<string[]> {
+  if (scope(setId) !== "expansion" || limit < 1) return [];
+  const rows = await db.select({
+    id: playableCards.id,
+    number: playableCards.number,
+  }).from(expansionReleaseMembers)
+    .innerJoin(expansionReleaseManifests, eq(expansionReleaseManifests.id, expansionReleaseMembers.manifestId))
+    .innerJoin(discoveryCohortMembers, eq(discoveryCohortMembers.memberKey, expansionReleaseMembers.memberKey))
+    .innerJoin(playableCards, eq(playableCards.id, discoveryCohortMembers.playableCardId))
+    .where(and(
+      eq(expansionReleaseManifests.setId, setId),
+      isNull(expansionReleaseManifests.revokedAt),
+      eq(playableCards.gameSetId, setId),
+    ));
+  const ordered = rows
+    .map((row) => {
+      const parsed = Number(row.number);
+      return { id: row.id, number: Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER };
+    })
+    .sort((a, b) => a.number - b.number || a.id.localeCompare(b.id));
+  const ids: string[] = [];
+  for (const row of ordered) {
+    if (!await readReleasedOpaqueForCard(row.id)) continue;
+    ids.push(row.id);
+    if (ids.length >= limit) break;
+  }
+  return ids;
+}
+
+/**
+ * Stored native bytes only when the public mask would serve this card.
+ * The bytes are the approved JPEG. This does not render, resize, or fetch.
+ */
+export async function readReleasedOpaqueForCard(cardId: string): Promise<Buffer | null> {
+  const image = await publicExpansionImage(cardId);
+  return image.kind === "serve" ? image.bytes : null;
+}
+
+/**
+ * Current expansion binding for a public image route.
+ * Live cards stay on the legacy sidecar path. A closed expansion card must not
+ * fall through to a warm file, a pinned file, or a cached id.
+ */
+export async function publicExpansionImage(cardId: string): Promise<
+  { kind: "live" } | { kind: "closed" } | { kind: "serve"; bytes: Buffer }
+> {
+  const decision = applyExpansionServe(await expansionServeFacts(cardId));
+  if (decision.action === "passthrough") return { kind: "live" };
+  if (decision.action === "serve") return { kind: "serve", bytes: decision.bytes };
+  return { kind: "closed" };
+}
+
 export async function expansionSetIsCleared(setId: string): Promise<boolean> {
   const [row] = await db.select({ id: expansionReleaseManifests.id }).from(expansionReleaseManifests).where(and(
     eq(expansionReleaseManifests.setId, setId),

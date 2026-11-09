@@ -14,6 +14,7 @@ import type { Request, Response } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { CURRENT_MASK_VERSION, isMaskSetUuid } from "@shared/maskGeometry";
 import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT, SET_COVER_WIDTHS, setCoverVersionFromEtag } from "@shared/setCoverUrl";
+import { publicExpansionImage, releasedExpansionCoverIds } from "./baseballExpansion/perCardRelease";
 import sharp from "sharp";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
@@ -319,7 +320,10 @@ export async function logPinnedCoversAtBoot(): Promise<void> {
 async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]>> {
   const reports = await resolvePinnedCoverReports(setIds);
   const out = new Map<string, string[]>();
-  for (const setId of setIds) out.set(setId, reports.get(setId)?.validIds ?? []);
+  for (const setId of setIds) {
+    const pinned = reports.get(setId)?.validIds ?? [];
+    out.set(setId, pinned.length > 0 ? pinned : await releasedExpansionCoverIds(setId, SET_COVER_SLOT_COUNT));
+  }
   return out;
 }
 
@@ -813,8 +817,19 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
 
   try {
     const cardId = (await cachedCoverCardIds(setId))[slot];
-    const file = cardId ? resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId) : null;
-    if (!file || !cardId) {
+    if (!cardId) {
+      coverNotReady(res);
+      return;
+    }
+    // Binding is decided before a warm file, a pinned file, a cached id, or a 304.
+    const expansion = await publicExpansionImage(cardId);
+    if (expansion.kind === "closed") {
+      coverNotReady(res);
+      return;
+    }
+    const releasedBytes = expansion.kind === "serve" ? expansion.bytes : null;
+    const file = releasedBytes ? null : resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
+    if (!file && !releasedBytes) {
       coverNotReady(res);
       return;
     }
@@ -835,6 +850,18 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
     setCoverHeaders(res, etag, cardId, { webp, versioned });
     if (req.method === "HEAD") {
       res.status(200).end();
+      return;
+    }
+
+    if (!file && releasedBytes) {
+      if (webp) setCoverHeaders(res, baseEtag, cardId, { versioned: false });
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Content-Length", String(releasedBytes.length));
+      res.end(releasedBytes);
+      return;
+    }
+    if (!file) {
+      coverNotReady(res);
       return;
     }
 
