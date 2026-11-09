@@ -15,12 +15,14 @@ import {
   registerGeometryProposal,
   stageExactSource,
   importBoundStagedSource,
+  listGeometryProposals,
 } from "../services/baseballExpansion/discoveryCohort";
 import {
   recordExpansionRelease,
   recordOutputApproval,
   recordServeClearance,
   recordSourceAcceptance,
+  readStoredOpaquePreview,
   revokeExpansionRelease,
 } from "../services/baseballExpansion/perCardRelease";
 import { expansionTargetById } from "../services/baseballExpansion/registry";
@@ -165,6 +167,17 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "import failed" }); });
   });
 
+  app.get("/api/qa/baseball-expansion/:setId/geometry-proposals", (req, res) => {
+    if (!gate(req, res)) return;
+    const memberKey = req.query.memberKey;
+    if (memberKey !== undefined && typeof memberKey !== "string") {
+      return send(res, 400, { error: "memberKey must be a string" });
+    }
+    void listGeometryProposals(req.params.setId, memberKey)
+      .then((result) => send(res, result.ok ? 200 : 409, result))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "proposal failed" }); });
+  });
+
   app.post("/api/qa/baseball-expansion/:setId/geometry-proposals", (req, res) => {
     if (!gate(req, res)) return;
     const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
@@ -239,6 +252,30 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
       approvedBy: body.approvedBy,
     }).then((result) => send(res, result.ok ? 200 : 409, { ok: result.ok, id: result.ok ? result.id : undefined, unchanged: result.ok ? result.unchanged : undefined, code: result.ok ? undefined : result.code, releaseAuthorized: false }))
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "approval failed" }); });
+  });
+
+  app.get("/api/qa/baseball-expansion/:setId/discovery-cohort/output-preview/:memberKey/:variant", (req, res) => {
+    if (!gate(req, res)) return;
+    const variant = req.params.variant;
+    if (variant !== "native" && variant !== "preview300") {
+      return send(res, 400, { error: "preview variant is native or preview300" });
+    }
+    void readStoredOpaquePreview({ setId: req.params.setId, memberKey: req.params.memberKey, variant })
+      .then((result) => {
+        if (!result.ok) return send(res, result.code === "output_unapproved" ? 404 : 409, { ...result, releaseAuthorized: false });
+        applyNoStoreHeaders(res);
+        res.setHeader("X-Robots-Tag", "noindex");
+        res.setHeader("X-Content-Sha256", result.sha256);
+        res.setHeader("X-Release-Authorized", "false");
+        res.setHeader("X-Serve-Cleared", "false");
+        res.setHeader("Content-Security-Policy", "default-src 'none'");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.status(200);
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Content-Length", result.bytes.length);
+        res.end(result.bytes);
+      })
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "preview failed" }); });
   });
 
   app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/serve-clearance", (req, res) => {

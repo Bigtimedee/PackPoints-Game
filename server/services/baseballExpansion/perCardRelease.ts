@@ -351,6 +351,32 @@ export async function countExpansionGameplayEligible(setId: string): Promise<num
   return rows.filter((row) => bindingCode(row) == null).length;
 }
 
+/**
+ * Staff preview of the bytes already stored by output approval.
+ * It does not require serve clearance, does not write a public file, and
+ * does not record a release. A hash mismatch returns no image.
+ */
+export async function readStoredOpaquePreview(input: {
+  setId: string;
+  memberKey: string;
+  variant: "native" | "preview300";
+}): Promise<
+  { ok: true; bytes: Buffer; sha256: string; releaseAuthorized: false; serveCleared: false }
+  | { ok: false; code: ReleaseRefusal }
+> {
+  if (scope(input.setId) === "stopped") return { ok: false, code: "ud_stopped" };
+  if (scope(input.setId) !== "expansion") return { ok: false, code: "not_expansion" };
+  const [output] = await db.select().from(expansionOutputApprovals).where(and(
+    eq(expansionOutputApprovals.setId, input.setId),
+    eq(expansionOutputApprovals.memberKey, input.memberKey),
+  )).limit(1);
+  if (!output) return { ok: false, code: "output_unapproved" };
+  const stored = input.variant === "native" ? asBuffer(output.nativeBytes) : asBuffer(output.preview300Bytes);
+  const expected = input.variant === "native" ? output.nativeSha256 : output.preview300Sha256;
+  if (!stored || sha256Bytes(stored) !== expected) return { ok: false, code: "output_hash_mismatch" };
+  return { ok: true, bytes: stored, sha256: expected, releaseAuthorized: false, serveCleared: false };
+}
+
 export async function inspectBoundServe(cardId: string): Promise<{ kind: "bound_held"; bytes: Buffer } | { kind: "refused"; code: ReleaseRefusal }> {
   if (!UUID.test(cardId)) return { kind: "refused", code: "card_unbound" };
   const [card] = await db.select().from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
