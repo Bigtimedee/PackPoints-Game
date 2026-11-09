@@ -844,17 +844,10 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
     }
 
     if (!file && releasedBytes) {
-      let body = releasedBytes;
-      if (webp) {
-        try {
-          body = await sharp(releasedBytes).resize({ width: width!, withoutEnlargement: true }).webp({ quality: 74, effort: 4 }).toBuffer();
-        } catch {
-          body = releasedBytes;
-          setCoverHeaders(res, baseEtag, cardId, { versioned: false });
-        }
-      }
-      res.setHeader("Content-Length", String(body.length));
-      res.end(body);
+      if (webp) setCoverHeaders(res, baseEtag, cardId, { versioned: false });
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Content-Length", String(releasedBytes.length));
+      res.end(releasedBytes);
       return;
     }
     if (!file) {
