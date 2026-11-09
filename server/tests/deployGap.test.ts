@@ -29,6 +29,11 @@ describe("deploy gap", () => {
     expect(boot).toContain('["drizzle-kit", "push", "--force"]');
     expect(boot).toContain("pg_dump");
     expect(indexSrc).toContain("runProductionSchemaBoot");
+    const bootFn = indexSrc.slice(indexSrc.indexOf("export async function bootAfterListen"));
+    const schemaAt = bootFn.indexOf("await runProductionSchemaBoot()");
+    const heldAt = bootFn.indexOf("await logHeldSets()");
+    expect(schemaAt).toBeGreaterThan(-1);
+    expect(heldAt).toBeGreaterThan(schemaAt);
     expect(schemaBoot).toContain('logBootPhase("fast_schema_ok")');
     expect(schemaBoot).toContain('logBootPhase("fast_schema_fallback"');
     expect(schemaBoot).toContain("lock_timeout");

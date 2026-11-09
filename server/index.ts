@@ -95,7 +95,6 @@ export async function bootAfterListen(
   httpServer: Server,
 ): Promise<void> {
   logCardBlocklist();
-  await logHeldSets();
   try {
     await logMaskCachePurge();
   } catch (error) {
@@ -258,6 +257,11 @@ app.use((req, res, next) => {
       process.exit(1);
     }
   }
+
+  // Held-set refresh reads expansion_release_manifests. That select stays
+  // after the schema push: a missing relation is a startup failure, not an
+  // empty release list, and it must not open routes or unhold a card.
+  await logHeldSets();
 
   // Per-card review guard. Seeds card_review_approvals once (every card dealable
   // now), then holds any card outside it. Must run before routes and before the
