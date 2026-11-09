@@ -677,7 +677,7 @@ export function geometryUsable(input: GeometryProposalInput, member: { originalS
   return { ok: true };
 }
 
-export async function registerGeometryProposal(input: GeometryProposalInput): Promise<{ ok: true; approval: false; usable: boolean } | { ok: false; code: "unknown_member" | "wrong_hash" | "wrong_dimensions" | "wrong_supplier" | "unknown_version" | "unmeasured" }> {
+export async function registerGeometryProposal(input: GeometryProposalInput): Promise<{ ok: true; id: string; approval: false; usable: boolean } | { ok: false; code: "unknown_member" | "wrong_hash" | "wrong_dimensions" | "wrong_supplier" | "unknown_version" | "unmeasured" }> {
   const [member] = await db.select().from(discoveryCohortMembers).where(and(
     eq(discoveryCohortMembers.memberKey, input.memberKey),
     eq(discoveryCohortMembers.setId, input.setId),
@@ -691,7 +691,7 @@ export async function registerGeometryProposal(input: GeometryProposalInput): Pr
     const usable = geometryUsable(input, member);
     if (!usable.ok) return usable;
   }
-  await db.insert(geometryProposals).values({
+  const [row] = await db.insert(geometryProposals).values({
     setId: input.setId,
     memberKey: input.memberKey,
     supplierId: input.supplierId,
@@ -702,8 +702,70 @@ export async function registerGeometryProposal(input: GeometryProposalInput): Pr
     polygonPixels: input.polygonPixels,
     polygonNormalized: input.polygonNormalized,
     approval: false,
-  });
-  return { ok: true, approval: false, usable: !unmeasuredRecord };
+  }).returning({ id: geometryProposals.id });
+  return { ok: true, id: row!.id, approval: false, usable: !unmeasuredRecord };
+}
+
+export interface ListedGeometryProposal {
+  id: string;
+  memberKey: string;
+  supplierId: string;
+  sourceSha256: string;
+  width: number;
+  height: number;
+  geometryVersion: string | null;
+  polygonPixels: number[][] | null;
+  polygonNormalized: number[][] | null;
+  usable: boolean;
+  approval: false;
+  createdAt: string;
+}
+
+/** Read the ids already stored. This does not approve a profile or clear a set. */
+export async function listGeometryProposals(setId: string, memberKey?: string): Promise<
+  { ok: true; releaseAuthorized: false; approval: false; proposals: ListedGeometryProposal[] }
+  | { ok: false; code: "ud_stopped" | "not_expansion" }
+> {
+  if (setId.trim().toLowerCase() === UD_1991_DISCOVERY.setId) return { ok: false, code: "ud_stopped" };
+  if (!isMissingExpansionId(setId)) return { ok: false, code: "not_expansion" };
+  const members = await db.select().from(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, setId));
+  const byKey = new Map(members.map((member) => [member.memberKey, member]));
+  const rows = await db.select().from(geometryProposals).where(memberKey
+    ? and(eq(geometryProposals.setId, setId), eq(geometryProposals.memberKey, memberKey))
+    : eq(geometryProposals.setId, setId),
+  ).orderBy(geometryProposals.createdAt);
+  return {
+    ok: true,
+    releaseAuthorized: false,
+    approval: false,
+    proposals: rows.map((row) => {
+      const member = byKey.get(row.memberKey);
+      const usable = member ? measuredProposal({
+        setId: row.setId,
+        supplierId: row.supplierId,
+        sourceSha256: row.sourceSha256,
+        width: row.width,
+        height: row.height,
+        geometryVersion: row.geometryVersion,
+        polygonPixels: row.polygonPixels,
+        polygonNormalized: row.polygonNormalized,
+      }, member) : false;
+      return {
+        id: row.id,
+        memberKey: row.memberKey,
+        supplierId: row.supplierId,
+        sourceSha256: row.sourceSha256,
+        width: row.width,
+        height: row.height,
+        geometryVersion: row.geometryVersion,
+        polygonPixels: row.polygonPixels,
+        polygonNormalized: row.polygonNormalized,
+        usable,
+        approval: false,
+        createdAt: row.createdAt.toISOString(),
+      };
+    }),
+  };
 }
 
 async function compositeOpaquePlate(jpeg: Buffer, polygon: readonly (readonly number[])[]): Promise<{ native: Buffer; maskedPreview: Buffer; originalPreview: Buffer }> {
