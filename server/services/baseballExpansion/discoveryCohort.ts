@@ -19,7 +19,8 @@ import {
   playableCards,
 } from "@shared/schema";
 import { db } from "../../db";
-import { fetchImportImage } from "../images/approvedImageFetch";
+import { fetchImportImage, isApprovedSupplierImageHost, isPrivateAddress } from "../images/approvedImageFetch";
+import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "../cards/imageQuality";
 
 export { fetchImportImage };
 import { expansionTargetById, isMissingExpansionId } from "./registry";
@@ -39,6 +40,16 @@ export const RECOGNIZED_GEOMETRY_VERSION = "plate-polygon-v1";
 const SHA = /^[a-f0-9]{64}$/;
 const MEMBER_KEY = /^candidate-\d{4}\|[a-f0-9]{64}$/;
 const DISPOSITIONS = new Set(["pass-candidate", "hold", "drop"]);
+
+/**
+ * The discovery inventory names this class drop-proposal. The table check
+ * stores drop. Both words are that one class, and neither word can be imported.
+ */
+export function storedDisposition(value: string): "pass-candidate" | "hold" | "drop" | null {
+  if (value === "drop-proposal") return "drop";
+  if (DISPOSITIONS.has(value)) return value as "pass-candidate" | "hold" | "drop";
+  return null;
+}
 export const ORIGINAL_COHORT_PASS_RATE = 0.95;
 
 export interface CohortMemberInput {
@@ -121,11 +132,12 @@ export function parseCohortMembers(raw: unknown, checklistCount: number): Cohort
     const width = cleanInt(row.originalWidth, 1, 10000);
     const height = cleanInt(row.originalHeight, 1, 10000);
     const bytes = cleanInt(row.originalBytes, 1, 20_000_000);
-    const disposition = cleanToken(row.disposition, 40);
+    const dispositionRaw = cleanToken(row.disposition, 40);
+    const disposition = dispositionRaw ? storedDisposition(dispositionRaw) : null;
     if (!memberKey || !MEMBER_KEY.test(memberKey) || !supplierId || !routing || !sha || !SHA.test(sha)) return null;
     const cardNumber = cardNumberRaw ? canonicalCardNumber(cardNumberRaw, checklistCount) : null;
     if (!cardNumber || ordinal == null || width == null || height == null || bytes == null) return null;
-    if (!disposition || !DISPOSITIONS.has(disposition)) return null;
+    if (!disposition) return null;
     if (memberKey.split("|")[1] !== sha) return null;
     const number = Number(cardNumber);
     if (number < 1 || number > checklistCount) return null;
@@ -134,7 +146,7 @@ export function parseCohortMembers(raw: unknown, checklistCount: number): Cohort
     members.push({
       memberKey, ordinal, cardNumber, supplierId, originalSha256: sha,
       originalWidth: width, originalHeight: height, originalBytes: bytes,
-      disposition: disposition as CohortMemberInput["disposition"], routing,
+      disposition, routing,
     });
   }
   return members;
@@ -431,6 +443,73 @@ export async function stageExactSource(setId: string, supplierId: string, bytes:
     set: { sha256, width, height, bytes: bytes.length, imageBytes: bytes, stagedAt: new Date() },
   });
   return { ok: true, sha256, importable: false };
+}
+
+/** Allowlisted https pointer. This does not download the URL. */
+export function supplierImagePointer(value: string): string | null {
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { return null; }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
+  const host = parsed.hostname.toLowerCase();
+  if (!isApprovedSupplierImageHost(host) || isPrivateAddress(host)) return null;
+  if (value.length > 500 || /\s/.test(value)) return null;
+  return parsed.toString();
+}
+
+/**
+ * Insert the staged bytes that already match the member hash.
+ * A live supplier body is not read. A different encoding of the same pixels
+ * stays source_drift on the download path and is not written here.
+ */
+export async function importBoundStagedSource(input: {
+  setId: string;
+  supplierId: string;
+  imageUrl: string;
+  player: string;
+  variant?: string | null;
+  category?: string | null;
+}): Promise<{ ok: true; id: string; unchanged: boolean; sha256: string } | { ok: false; code: string }> {
+  if (input.setId.trim().toLowerCase() === UD_1991_DISCOVERY.setId) return { ok: false, code: "ud_stopped" };
+  if (!isMissingExpansionId(input.setId)) return { ok: false, code: "not_expansion" };
+  const pointer = supplierImagePointer(input.imageUrl);
+  const player = input.player.trim();
+  if (!pointer || player.length < 1 || player.length > 120 || player.includes("://")) return { ok: false, code: "evidence_required" };
+  const [member] = await db.select().from(discoveryCohortMembers).where(and(
+    eq(discoveryCohortMembers.setId, input.setId),
+    eq(discoveryCohortMembers.supplierId, input.supplierId),
+  )).limit(1);
+  if (!member) return { ok: false, code: "unregistered_source" };
+  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  const [stage] = await db.select().from(discoverySourceStaging).where(and(
+    eq(discoverySourceStaging.setId, input.setId),
+    eq(discoverySourceStaging.supplierId, input.supplierId),
+  )).limit(1);
+  const bytes = stage?.imageBytes ? asBuffer(stage.imageBytes) : null;
+  if (!stage || !bytes) return { ok: false, code: "source_not_staged" };
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (sha256 !== member.originalSha256 || sha256 !== stage.sha256 || bytes.length !== member.originalBytes || stage.width !== member.originalWidth || stage.height !== member.originalHeight || stage.bytes !== member.originalBytes) {
+    return { ok: false, code: "source_drift" };
+  }
+  const saved = await insertGuardedPlayable({
+    setId: input.setId,
+    supplierId: input.supplierId,
+    cardNumber: member.cardNumber,
+    downloaded: bytes,
+    values: {
+      description: null,
+      player,
+      set: null,
+      number: member.cardNumber,
+      variant: input.variant ?? "Base",
+      imageUrl: pointer,
+      category: input.category ?? "Baseball",
+      rookie: null,
+      isPlayable: !isThirdPartyPhotoHost(pointer),
+      blockedReason: isThirdPartyPhotoHost(pointer) ? THIRD_PARTY_PHOTO_REASON : null,
+    },
+  });
+  if (!saved.ok) return saved;
+  return { ...saved, sha256 };
 }
 
 export async function loadExactSourceGate(setId: string): Promise<(supplierId: string, cardNumber: string | null) => string | null> {

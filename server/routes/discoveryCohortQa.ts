@@ -14,6 +14,7 @@ import {
   recordDiscoveryAddition,
   registerGeometryProposal,
   stageExactSource,
+  importBoundStagedSource,
 } from "../services/baseballExpansion/discoveryCohort";
 import {
   recordExpansionRelease,
@@ -137,6 +138,31 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
     void stageExactSource(req.params.setId, body.supplierId, bytes)
       .then((result) => send(res, result.ok ? 200 : 409, { ...result, sourceValidated: false, releaseAuthorized: false }))
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "stage failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/import-staged", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if ("sourceUrl" in body || "url" in body || "imageBase64" in body || "imageBytes" in body) {
+      return send(res, 400, { error: "import uses the staged bytes, not a new image" });
+    }
+    if (typeof body.supplierId !== "string" || typeof body.imageUrl !== "string" || typeof body.player !== "string") {
+      return send(res, 400, { error: "import needs supplierId, imageUrl, and player" });
+    }
+    const variant = body.variant == null ? null : body.variant;
+    const category = body.category == null ? null : body.category;
+    if ((variant !== null && typeof variant !== "string") || (category !== null && typeof category !== "string")) {
+      return send(res, 400, { error: "import needs supplierId, imageUrl, and player" });
+    }
+    void importBoundStagedSource({
+      setId: req.params.setId,
+      supplierId: body.supplierId,
+      imageUrl: body.imageUrl,
+      player: body.player,
+      variant,
+      category,
+    }).then((result) => send(res, result.ok ? 200 : 409, { ...result, fetched: false, releaseAuthorized: false }))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "import failed" }); });
   });
 
   app.post("/api/qa/baseball-expansion/:setId/geometry-proposals", (req, res) => {
