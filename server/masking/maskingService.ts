@@ -166,6 +166,7 @@ async function ensureDirectory(): Promise<void> {
 }
 
 import { applyMaskSourceOverride } from "./maskSourceOverrides";
+import { readBoundSourceState } from "../services/baseballExpansion/discoveryCohort";
 
 export async function downloadMaskSource(url: string, cardId: string): Promise<Buffer | null> {
   const started = Date.now();
@@ -490,10 +491,12 @@ export async function getMaskedImagePath(
   }
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
   if (isMaskBandExcluded(cardId)) return null;
+  const boundState = await readBoundSourceState(cardId);
+  if (boundState.kind === "refused") return null;
 
   await discardStaleHoopsBottomBake(cardId);
 
-  if (!opts?.ignoreCache) {
+  if (!opts?.ignoreCache && boundState.kind !== "bound") {
     const warm = peekWarmMaskedFilename(cardId);
     if (warm && await acceptWarmMaskedFile(cardId, warm)) {
       return warm;
@@ -503,7 +506,7 @@ export async function getMaskedImagePath(
   const priority = opts?.priority ?? "live";
   if (priority === "live") liveMaskRequests++;
   try {
-    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority, opts?.ignoreCache === true), {
+    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority, opts?.ignoreCache === true || boundState.kind === "bound"), {
       promote: priority === "live",
     });
   } finally {
@@ -618,13 +621,16 @@ async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "
     }
   }
 
+  const bound = await readBoundSourceState(cardId);
+  if (bound.kind === "refused") return null;
   return bakeMaskedCardFromUrl({
     cardId,
-    imageUrl,
+    imageUrl: imageUrl || "bound://stored",
     playerName: playerName || "",
     setHint,
     gameSetId,
     imageRotation,
+    ...(bound.kind === "bound" ? { sourceBuffer: bound.bytes } : {}),
   }, priority);
 }
 

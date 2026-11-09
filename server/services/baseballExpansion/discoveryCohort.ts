@@ -10,14 +10,18 @@ import sharp from "sharp";
 import {
   discoveryAdditions,
   discoveryCohortMembers,
+  designPoolSubmissions,
   discoveryCohorts,
   discoveryImportProvenance,
   discoverySourceRevisions,
   discoverySourceStaging,
   geometryProposals,
+  playableCards,
 } from "@shared/schema";
 import { db } from "../../db";
-import { withSourceFetchTimeout } from "../images/sourceFetch";
+import { fetchImportImage } from "../images/approvedImageFetch";
+
+export { fetchImportImage };
 import { expansionTargetById, isMissingExpansionId } from "./registry";
 
 /** Full discovery file for 1991 Upper Deck. The file is not in this repo. Checklist length stays 800. */
@@ -75,6 +79,13 @@ export function canonicalMemberRecord(member: CohortMemberInput): string {
   ]);
 }
 
+export function canonicalCardNumber(raw: string, checklistCount: number): string | null {
+  if (!/^\d{1,4}$/.test(raw)) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > checklistCount) return null;
+  return String(n);
+}
+
 export function membershipSha256(members: readonly CohortMemberInput[]): string {
   const lines = [...members]
     .sort((a, b) => a.ordinal - b.ordinal || a.memberKey.localeCompare(b.memberKey))
@@ -105,14 +116,15 @@ export function parseCohortMembers(raw: unknown, checklistCount: number): Cohort
     const supplierId = cleanToken(row.supplierId, 80);
     const routing = cleanToken(row.routing, 80);
     const sha = cleanToken(row.originalSha256, 64);
-    const cardNumber = cleanToken(row.cardNumber, 4);
+    const cardNumberRaw = cleanToken(row.cardNumber, 4);
     const ordinal = cleanInt(row.ordinal, 1, 5000);
     const width = cleanInt(row.originalWidth, 1, 10000);
     const height = cleanInt(row.originalHeight, 1, 10000);
     const bytes = cleanInt(row.originalBytes, 1, 20_000_000);
     const disposition = cleanToken(row.disposition, 40);
     if (!memberKey || !MEMBER_KEY.test(memberKey) || !supplierId || !routing || !sha || !SHA.test(sha)) return null;
-    if (!cardNumber || !/^\d{1,4}$/.test(cardNumber) || ordinal == null || width == null || height == null || bytes == null) return null;
+    const cardNumber = cardNumberRaw ? canonicalCardNumber(cardNumberRaw, checklistCount) : null;
+    if (!cardNumber || ordinal == null || width == null || height == null || bytes == null) return null;
     if (!disposition || !DISPOSITIONS.has(disposition)) return null;
     if (memberKey.split("|")[1] !== sha) return null;
     const number = Number(cardNumber);
@@ -182,7 +194,7 @@ export async function createDiscoveryCohort(input: {
   setId: string;
   artifactSha256: string;
   members: CohortMemberInput[];
-}): Promise<{ ok: true; unchanged: boolean; originalCount: number; membershipSha256: string } | { ok: false; code: "not_held" | "partial_cohort" | "artifact_mismatch" | "membership_mismatch" }> {
+}): Promise<{ ok: true; unchanged: boolean; originalCount: number; membershipSha256: string } | { ok: false; code: "not_held" | "partial_cohort" | "artifact_mismatch" | "membership_mismatch" | "legacy_membership_exists" }> {
   if (!isMissingExpansionId(input.setId)) return { ok: false, code: "not_held" };
   const target = expansionTargetById(input.setId);
   if (!target?.baseCount) return { ok: false, code: "not_held" };
@@ -194,6 +206,8 @@ export async function createDiscoveryCohort(input: {
   if (pin && membershipHash !== pin.membershipSha256) return { ok: false, code: "membership_mismatch" };
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`set-membership:${input.setId}`}))`);
+    const [legacy] = await tx.select({ setId: designPoolSubmissions.setId }).from(designPoolSubmissions).where(eq(designPoolSubmissions.setId, input.setId)).limit(1);
+    if (legacy) return { ok: false, code: "legacy_membership_exists" };
     const [existing] = await tx.select().from(discoveryCohorts).where(eq(discoveryCohorts.setId, input.setId)).limit(1);
     if (existing) {
       if (existing.artifactSha256 === input.artifactSha256 && existing.membershipSha256 === membershipHash) {
@@ -357,22 +371,32 @@ export async function recordDiscoveryAddition(input: {
   width: number;
   height: number;
   bytes: number;
-}): Promise<{ ok: true; unchanged: boolean; countsTowardOriginal: false } | { ok: false; code: "invalid_addition" | "number_claimed" | "already_member" | "no_cohort" }> {
+}): Promise<{ ok: true; unchanged: boolean; countsTowardOriginal: false } | { ok: false; code: "invalid_addition" | "number_claimed" | "already_member" | "no_cohort" | "addition_conflict" | "supplier_conflict" }> {
   if (!validSha(input.sha256) || !/^\d{1,4}$/.test(input.cardNumber) || input.width < 1 || input.height < 1 || input.bytes < 1) {
     return { ok: false, code: "invalid_addition" };
   }
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`addition:${input.setId}`}))`);
-    const [cohort] = await tx.select({ setId: discoveryCohorts.setId }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, input.setId)).limit(1);
+    const [cohort] = await tx.select({ setId: discoveryCohorts.setId, checklistCount: discoveryCohorts.checklistCount }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, input.setId)).limit(1);
     if (!cohort) return { ok: false, code: "no_cohort" };
+    const number = canonicalCardNumber(input.cardNumber, cohort.checklistCount);
+    if (!number) return { ok: false, code: "invalid_addition" };
     const members = await tx.select({ supplierId: discoveryCohortMembers.supplierId, cardNumber: discoveryCohortMembers.cardNumber })
       .from(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, input.setId));
     if (members.some((member) => member.supplierId === input.supplierId)) return { ok: false, code: "already_member" };
-    if (members.some((member) => member.cardNumber === input.cardNumber)) return { ok: false, code: "number_claimed" };
+    if (members.some((member) => String(Number(member.cardNumber)) === number)) return { ok: false, code: "number_claimed" };
     const prior = await tx.select().from(discoveryAdditions).where(eq(discoveryAdditions.setId, input.setId));
     const same = prior.find((row) => row.supplierId === input.supplierId);
-    if (same && same.cardNumber === input.cardNumber && same.sha256 === input.sha256) return { ok: true, unchanged: true, countsTowardOriginal: false };
-    if (prior.some((row) => row.cardNumber === input.cardNumber)) return { ok: false, code: "number_claimed" };
+    if (same) {
+      if (same.cardNumber === number && same.sha256 === input.sha256 && same.width === input.width && same.height === input.height && same.bytes === input.bytes) {
+        return { ok: true, unchanged: true, countsTowardOriginal: false };
+      }
+      return { ok: false, code: same.cardNumber === number ? "addition_conflict" : "supplier_conflict" };
+    }
+    if (prior.some((row) => String(Number(row.cardNumber)) === number) || members.some((member) => String(Number(member.cardNumber)) === number)) {
+      return { ok: false, code: "number_claimed" };
+    }
+    input = { ...input, cardNumber: number };
     await tx.insert(discoveryAdditions).values(input);
     return { ok: true, unchanged: false, countsTowardOriginal: false };
   });
@@ -455,50 +479,92 @@ export async function verifyImportBytes(setId: string, supplierId: string, cardN
   return { ok: true, memberKey: member.memberKey, sha256 };
 }
 
-export async function bindImportedCard(input: { setId: string; memberKey: string; supplierId: string; playableCardId: string; sha256: string; byteLength: number }): Promise<void> {
-  await db.update(discoveryCohortMembers).set({ playableCardId: input.playableCardId }).where(and(
-    eq(discoveryCohortMembers.memberKey, input.memberKey),
-    eq(discoveryCohortMembers.setId, input.setId),
-  ));
-  await db.insert(discoveryImportProvenance).values({
-    playableCardId: input.playableCardId,
-    setId: input.setId,
-    memberKey: input.memberKey,
-    supplierId: input.supplierId,
-    sha256: input.sha256,
-    byteLength: input.byteLength,
-    sourceAccepted: false,
-    opaqueQaPassed: false,
-  }).onConflictDoNothing();
+export type BoundSourceState =
+  | { kind: "legacy" }
+  | { kind: "bound"; bytes: Buffer; sha256: string }
+  | { kind: "refused" };
+
+function asBuffer(value: Buffer | Uint8Array): Buffer {
+  return Buffer.isBuffer(value) ? value : Buffer.from(value);
 }
 
-export async function readBoundSourceBytes(cardId: string): Promise<Buffer | null> {
-  const [row] = await db.select({ supplierId: discoveryImportProvenance.supplierId, setId: discoveryImportProvenance.setId, sha256: discoveryImportProvenance.sha256 })
-    .from(discoveryImportProvenance).where(eq(discoveryImportProvenance.playableCardId, cardId)).limit(1);
-  if (!row) return null;
-  const [stage] = await db.select({ imageBytes: discoverySourceStaging.imageBytes, sha256: discoverySourceStaging.sha256 }).from(discoverySourceStaging).where(and(
-    eq(discoverySourceStaging.setId, row.setId),
-    eq(discoverySourceStaging.supplierId, row.supplierId),
+/** Legacy cards have no cohort. A cohort card with a missing or mismatched bind is refused, not fetched. */
+export async function readBoundSourceState(cardId: string): Promise<BoundSourceState> {
+  const [card] = await db.select({
+    gameSetId: playableCards.gameSetId,
+    cardhedgeCardId: playableCards.cardhedgeCardId,
+  }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
+  if (!card?.gameSetId) return { kind: "legacy" };
+  const [cohort] = await db.select({ setId: discoveryCohorts.setId }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, card.gameSetId)).limit(1);
+  if (!cohort) return { kind: "legacy" };
+  const [prov] = await db.select().from(discoveryImportProvenance).where(eq(discoveryImportProvenance.playableCardId, cardId)).limit(1);
+  if (!prov || prov.supplierId !== card.cardhedgeCardId) return { kind: "refused" };
+  const [stage] = await db.select().from(discoverySourceStaging).where(and(
+    eq(discoverySourceStaging.setId, prov.setId),
+    eq(discoverySourceStaging.supplierId, prov.supplierId),
   )).limit(1);
-  if (!stage || stage.sha256 !== row.sha256) return null;
-  return stage.imageBytes;
+  if (!stage?.imageBytes) return { kind: "refused" };
+  const bytes = asBuffer(stage.imageBytes);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (sha256 !== prov.sha256 || sha256 !== stage.sha256) return { kind: "refused" };
+  return { kind: "bound", bytes, sha256 };
 }
 
-export async function fetchImportImage(url: string): Promise<Buffer | null> {
-  if (!url.startsWith("https://")) return null;
-  let host = "";
-  try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
-  if (host === "localhost" || host.endsWith(".local") || host === "127.0.0.1" || host === "::1") return null;
+export async function insertGuardedPlayable(input: {
+  setId: string;
+  supplierId: string;
+  cardNumber: string | null;
+  downloaded: Buffer | null;
+  values: {
+    description: string | null;
+    player: string;
+    set: string | null;
+    number: string | null;
+    variant: string | null;
+    imageUrl: string;
+    category: string | null;
+    rookie: boolean | null;
+    isPlayable: boolean;
+    blockedReason: string | null;
+  };
+  failBeforeProvenance?: boolean;
+}): Promise<{ ok: true; id: string; unchanged: boolean } | { ok: false; code: string }> {
+  const verdict = await verifyImportBytes(input.setId, input.supplierId, input.cardNumber, input.downloaded);
+  if (!verdict.ok || !input.downloaded) return { ok: false, code: verdict.ok ? "source_drift" : verdict.code };
+  const sha256 = verdict.sha256;
   try {
-    return await withSourceFetchTimeout(async (signal) => {
-      const response = await fetch(url, { signal, redirect: "manual", headers: { "User-Agent": "PackPTS/1.0" } });
-      if (!response.ok || response.status >= 300) return null;
-      const bytes = Buffer.from(await response.arrayBuffer());
-      if (bytes.length < 1 || bytes.length > 2_000_000) return null;
-      return bytes;
-    }, 10_000);
-  } catch {
-    return null;
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.cardhedgeCardId, input.supplierId)).limit(1);
+      if (existing) {
+        const [prov] = await tx.select().from(discoveryImportProvenance).where(eq(discoveryImportProvenance.playableCardId, existing.id)).limit(1);
+        if (prov?.sha256 === sha256) return { ok: true, id: existing.id, unchanged: true };
+        if (!prov) {
+          await tx.update(discoveryCohortMembers).set({ playableCardId: existing.id }).where(eq(discoveryCohortMembers.memberKey, verdict.memberKey));
+          await tx.insert(discoveryImportProvenance).values({
+            playableCardId: existing.id, setId: input.setId, memberKey: verdict.memberKey, supplierId: input.supplierId,
+            sha256, byteLength: input.downloaded!.length, sourceAccepted: false, opaqueQaPassed: false,
+          });
+          return { ok: true, id: existing.id, unchanged: false };
+        }
+        return { ok: false, code: "source_drift" };
+      }
+      const [row] = await tx.insert(playableCards).values({
+        gameSetId: input.setId,
+        cardhedgeCardId: input.supplierId,
+        ...input.values,
+      }).returning({ id: playableCards.id });
+      if (!row) return { ok: false, code: "source_drift" };
+      if (input.failBeforeProvenance) throw new Error("injected-bind-failure");
+      await tx.update(discoveryCohortMembers).set({ playableCardId: row.id }).where(eq(discoveryCohortMembers.memberKey, verdict.memberKey));
+      await tx.insert(discoveryImportProvenance).values({
+        playableCardId: row.id, setId: input.setId, memberKey: verdict.memberKey, supplierId: input.supplierId,
+        sha256, byteLength: input.downloaded!.length, sourceAccepted: false, opaqueQaPassed: false,
+      });
+      return { ok: true, id: row.id, unchanged: false };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "injected-bind-failure") throw error;
+    return { ok: false, code: "source_drift" };
   }
 }
 
@@ -558,16 +624,32 @@ export async function registerGeometryProposal(input: GeometryProposalInput): Pr
   return { ok: true, approval: false, usable: !unmeasuredRecord };
 }
 
-/** Opaque fill of the supplied polygon only. The rest of the image is unchanged. */
-export async function renderOpaqueNameplate(jpeg: Buffer, polygon: readonly (readonly number[])[]): Promise<{ native: Buffer; maskedPreview: Buffer; originalPreview: Buffer }> {
+async function compositeOpaquePlate(jpeg: Buffer, polygon: readonly (readonly number[])[]): Promise<{ native: Buffer; maskedPreview: Buffer; originalPreview: Buffer }> {
   const meta = await sharp(jpeg).metadata();
   const width = meta.width ?? 0;
   const height = meta.height ?? 0;
-  if (width < 1 || height < 1 || polygon.length < 3 || !polygon.every((pair) => pair.length === 2 && pair.every((part) => Number.isFinite(part)))) throw new Error("unmeasured");
   const points = polygon.map((pair) => `${pair[0]},${pair[1]}`).join(" ");
   const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><polygon points="${points}" fill="#c4a574"/></svg>`;
   const native = await sharp(jpeg).composite([{ input: Buffer.from(svg) }]).jpeg().toBuffer();
   const maskedPreview = await sharp(native).resize({ width: 300, withoutEnlargement: true }).jpeg().toBuffer();
   const originalPreview = await sharp(jpeg).resize({ width: 300, withoutEnlargement: true }).jpeg().toBuffer();
   return { native, maskedPreview, originalPreview };
+}
+
+/** The only render entry. The raw compositor stays private. */
+export async function renderMeasuredProposal(input: {
+  jpeg: Buffer;
+  proposal: GeometryProposalInput;
+  member: { originalSha256: string; originalWidth: number; originalHeight: number; supplierId: string; setId: string };
+}): Promise<{ ok: true; native: Buffer; maskedPreview: Buffer; originalPreview: Buffer; approval: false } | { ok: false; code: "wrong_hash" | "wrong_dimensions" | "wrong_supplier" | "unmeasured" | "unknown_version" }> {
+  const sha256 = createHash("sha256").update(input.jpeg).digest("hex");
+  if (sha256 !== input.proposal.sourceSha256 || sha256 !== input.member.originalSha256) return { ok: false, code: "wrong_hash" };
+  const meta = await sharp(input.jpeg).metadata();
+  if (meta.width !== input.proposal.width || meta.height !== input.proposal.height || meta.width !== input.member.originalWidth || meta.height !== input.member.originalHeight) {
+    return { ok: false, code: "wrong_dimensions" };
+  }
+  const gate = geometryUsable(input.proposal, input.member);
+  if (!gate.ok) return gate;
+  const drawn = await compositeOpaquePlate(input.jpeg, input.proposal.polygonPixels ?? []);
+  return { ok: true, ...drawn, approval: false };
 }

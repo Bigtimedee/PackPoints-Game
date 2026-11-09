@@ -25,6 +25,8 @@ const { discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryI
 const { insertIntegratedGameSet } = await import("../services/baseballExpansion/createIntegratedSet");
 const { fillMissingCards } = await import("../services/setFillMissing");
 const { sendUnmaskedCard } = await import("../services/playImageSend");
+const { bakeMaskedCardFromUrl, getMaskedImagePath } = await import("../masking/maskingService");
+const { fetchImportImage } = await import("../services/images/approvedImageFetch");
 const { recordOriginalMembership } = await import("../services/baseballExpansion/store");
 const { designApprovalDecision } = await import("../services/baseballExpansion/health");
 const { getMaskProfile } = await import("../masking/maskProfiles");
@@ -40,8 +42,10 @@ const {
   parseCohortMembers,
   readDiscoveryCohort,
   recordDiscoveryAddition,
+  insertGuardedPlayable,
+  readBoundSourceState,
   registerGeometryProposal,
-  renderOpaqueNameplate,
+  renderMeasuredProposal,
   stageExactSource,
 } = await import("../services/baseballExpansion/discoveryCohort");
 const { registerDiscoveryCohortRoutes: mountRoutes } = await import("../routes/discoveryCohortQa");
@@ -108,7 +112,7 @@ describe("discovery cohort rules", () => {
     expect(allNull.originalRate).toBe(0);
   });
 
-  it("does not treat an unversioned polygon as a usable mask", () => {
+  it("does not treat an unversioned polygon as a usable mask", async () => {
     const bound = { setId: UD, supplierId: "s", originalSha256: "ab", originalWidth: 10, originalHeight: 20 };
     const polygon = [[0, 0], [1, 0], [1, 1]];
     expect(geometryUsable({ ...bound, memberKey: "m", sourceSha256: "ff", width: 10, height: 20, geometryVersion: "v", polygonPixels: polygon, polygonNormalized: polygon }, bound).ok).toBe(false);
@@ -119,6 +123,35 @@ describe("discovery cohort rules", () => {
     const left = { memberKey: `candidate-0001|${"a".repeat(64)}`, ordinal: 1, cardNumber: "1", supplierId: "id|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|1|1|1|hold", originalSha256: "a".repeat(64), originalWidth: 2, originalHeight: 2, originalBytes: 2, disposition: "hold" as const, routing: "x" };
     const right = { ...left, supplierId: "id", originalWidth: 1, originalHeight: 1, originalBytes: 1, routing: `${"a".repeat(64)}|2|2|2|hold|x` };
     expect(canonicalMemberRecord(left)).not.toBe(canonicalMemberRecord(right));
+    const calls: string[] = [];
+    const body = new Uint8Array([1, 2, 3]);
+    expect(await fetchImportImage("https://img.example/a.jpg", { lookup: async () => [{ address: "1.1.1.1" }], fetchImpl: fetch })).toBeNull();
+    expect(await fetchImportImage("https://cdn.bubble.io/a.jpg", {
+      lookup: async () => [{ address: "10.1.1.1" }],
+      fetchImpl: (async () => { throw new Error("should not connect"); }) as typeof fetch,
+    })).toBeNull();
+    expect(await fetchImportImage("https://cdn.bubble.io/a.jpg", {
+      lookup: async () => [{ address: "1.1.1.1" }],
+      fetchImpl: (async () => ({ ok: true, status: 200, headers: { get: (name: string) => name === "content-length" ? "3000000" : null }, body: { getReader: () => { throw new Error("read"); } } })) as unknown as typeof fetch,
+    })).toBeNull();
+    const over = await fetchImportImage("https://cdn.bubble.io/a.jpg", {
+      lookup: async () => [{ address: "1.1.1.1" }],
+      fetchImpl: (async () => ({
+        ok: true, status: 200, headers: { get: () => null },
+        body: { getReader: () => ({ async read() { calls.push("read"); return calls.length > 3 ? { done: true, value: undefined } : { done: false, value: new Uint8Array(1_000_000) }; }, async cancel() { calls.push("cancel"); } }) },
+      })) as unknown as typeof fetch,
+    });
+    expect(over).toBeNull();
+    expect(calls).toContain("cancel");
+    let sent = false;
+    const small = await fetchImportImage("https://cdn.bubble.io/a.jpg", {
+      lookup: async () => [{ address: "1.1.1.1" }],
+      fetchImpl: (async () => ({
+        ok: true, status: 200, headers: { get: () => null },
+        body: { getReader: () => ({ async read() { if (sent) return { done: true, value: undefined }; sent = true; return { done: false, value: body }; }, async cancel() {} }) },
+      })) as unknown as typeof fetch,
+    });
+    expect(small?.equals(Buffer.from(body))).toBe(true);
   });
 });
 
@@ -131,9 +164,7 @@ describe("discovery cohort persistence", () => {
   async function resetCohort(setId: string) {
     await db.update(discoveryCohortMembers).set({ playableCardId: null }).where(eq(discoveryCohortMembers.setId, setId));
     await db.delete(discoveryImportProvenance).where(eq(discoveryImportProvenance.setId, setId));
-    await db.delete(playableCards).where(eq(playableCards.gameSetId, setId));
-    const { cardhedgeImportRuns } = await import("@shared/schema");
-    await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, setId));
+    await db.delete(playableCards).where(eq(playableCards.cardhedgeCardId, supplierA));
     await db.delete(geometryProposals).where(eq(geometryProposals.setId, setId));
     await db.delete(discoverySourceStaging).where(eq(discoverySourceStaging.setId, setId));
     await db.delete(discoveryAdditions).where(eq(discoveryAdditions.setId, setId));
@@ -315,6 +346,11 @@ describe("discovery cohort persistence", () => {
     expect(driftedImport.excluded.some((row) => row.cardhedgeCardId === supplierA && row.reason === "source_drift")).toBe(true);
     expect(driftedImport.excluded.some((row) => row.cardhedgeCardId === "supplier-hold" && row.reason === "not_importable")).toBe(true);
     expect(driftedImport.sourceValidated).toBe(false);
+    await expect(insertGuardedPlayable({
+      setId: OTHER, supplierId: supplierA, cardNumber: "1", downloaded: jpeg, failBeforeProvenance: true,
+      values: { description: null, player: "Alex Player", set: "1990 Upper Deck Baseball", number: "1", variant: "Base", imageUrl: "https://cdn.bubble.io/a.jpg", category: "Baseball", rookie: null, isPlayable: true, blockedReason: null },
+    })).rejects.toThrow(/injected-bind-failure/);
+    expect(await db.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.cardhedgeCardId, supplierA))).toEqual([]);
     const matched = await fillMissingCards(OTHER, {
       dryRun: false,
       details: false,
@@ -329,6 +365,30 @@ describe("discovery cohort persistence", () => {
     const served = { headers: {} as Record<string, string>, body: null as Buffer | null, setHeader(name: string, value: string) { this.headers[name] = value; }, removeHeader() {}, end(body?: Buffer) { this.body = body ?? null; } };
     await sendUnmaskedCard(served as never, matched.inserted[0]!.id);
     expect(served.body?.equals(jpeg)).toBe(true);
+    await db.delete(discoveryImportProvenance).where(eq(discoveryImportProvenance.playableCardId, matched.inserted[0]!.id));
+    let remoteCalls = 0;
+    const previousFetch = global.fetch;
+    global.fetch = (async () => { remoteCalls += 1; throw new Error("remote"); }) as typeof fetch;
+    const closed = { statusCode: 200, headers: {} as Record<string, string>, setHeader() {}, removeHeader() {}, status(code: number) { this.statusCode = code; return this; }, json() { return this; }, end() {} };
+    try {
+      await sendUnmaskedCard(closed as never, matched.inserted[0]!.id);
+      const baked = await getMaskedImagePath(matched.inserted[0]!.id, { ignoreCache: true });
+      expect(baked).toBeNull();
+      expect(remoteCalls).toBe(0);
+      expect(closed.statusCode).toBe(404);
+    } finally {
+      global.fetch = previousFetch;
+    }
+    const repaired = await insertGuardedPlayable({
+      setId: OTHER, supplierId: supplierA, cardNumber: "1", downloaded: jpeg,
+      values: { description: null, player: "Alex Player", set: "1990 Upper Deck Baseball", number: "1", variant: "Base", imageUrl: "https://cdn.bubble.io/a.jpg", category: "Baseball", rookie: null, isPlayable: true, blockedReason: null },
+    });
+    expect(repaired).toMatchObject({ ok: true });
+    expect((await readBoundSourceState(matched.inserted[0]!.id)).kind).toBe("bound");
+    await expect(insertGuardedPlayable({
+      setId: OTHER, supplierId: supplierA, cardNumber: "1", downloaded: jpeg, failBeforeProvenance: true,
+      values: { description: null, player: "Alex Player", set: "1990 Upper Deck Baseball", number: "1", variant: "Base", imageUrl: "https://cdn.bubble.io/a.jpg", category: "Baseball", rookie: null, isPlayable: true, blockedReason: null },
+    })).resolves.toMatchObject({ ok: true, unchanged: true });
     const replay = await appendSourceRevision({
       setId: OTHER, memberKey: `candidate-0002|${"b".repeat(64)}`, sha256: "1".repeat(64), width: 40, height: 60, bytes: 10, parentSha256: "b".repeat(64),
     });
@@ -343,10 +403,82 @@ describe("discovery cohort persistence", () => {
       setId: OTHER, supplierId: "supplier-second", cardNumber: "9", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
     });
     expect(duplicateNumber).toMatchObject({ ok: false, code: "number_claimed" });
-    const rendered = await renderOpaqueNameplate(jpeg, [[1, 1], [20, 1], [20, 20], [1, 20]]);
+    const polygon = [[1, 1], [30, 1], [30, 30], [1, 30]] as [number, number][];
+    const norm = polygon.map(([x, y]) => [x / 40, y / 60]);
+    const measuredProposal = {
+      setId: OTHER, memberKey: `candidate-0001|${sha}`, supplierId: supplierA, sourceSha256: sha,
+      width: 40, height: 60, geometryVersion: "plate-polygon-v1" as string | null,
+      polygonPixels: polygon as number[][], polygonNormalized: norm,
+    };
+    const memberBound = { setId: OTHER, supplierId: supplierA, originalSha256: sha, originalWidth: 40, originalHeight: 60 };
+    expect((await renderMeasuredProposal({ jpeg, proposal: { ...measuredProposal, geometryVersion: null }, member: memberBound })).ok).toBe(false);
+    expect((await renderMeasuredProposal({ jpeg, proposal: { ...measuredProposal, geometryVersion: "nope" }, member: memberBound })).ok).toBe(false);
+    expect((await renderMeasuredProposal({ jpeg, proposal: { ...measuredProposal, polygonPixels: [[1, 1], [80, 1], [80, 30], [1, 30]] }, member: memberBound })).ok).toBe(false);
+    expect((await renderMeasuredProposal({ jpeg, proposal: { ...measuredProposal, polygonPixels: [[1, 1], [1, 1], [1, 1]], polygonNormalized: [[0, 0], [0, 0], [0, 0]] }, member: memberBound })).ok).toBe(false);
+    expect((await renderMeasuredProposal({ jpeg, proposal: { ...measuredProposal, polygonNormalized: [[0.9, 0.9], [0.9, 0.9], [0.9, 0.9], [0.9, 0.9]] }, member: memberBound })).ok).toBe(false);
+    const otherJpeg = await sharp({ create: { width: 40, height: 60, channels: 3, background: { r: 200, g: 1, b: 1 } } }).jpeg().toBuffer();
+    expect((await renderMeasuredProposal({ jpeg: otherJpeg, proposal: measuredProposal, member: memberBound })).ok).toBe(false);
+    const drawn = await renderMeasuredProposal({ jpeg, proposal: measuredProposal, member: memberBound });
+    expect(drawn.ok).toBe(true);
+    const rendered = drawn.ok ? drawn : { native: Buffer.alloc(0), maskedPreview: Buffer.alloc(0), originalPreview: Buffer.alloc(0) };
     expect(rendered.native.length).toBeGreaterThan(0);
     expect(rendered.maskedPreview.length).toBeGreaterThan(0);
     expect(rendered.originalPreview.length).toBeGreaterThan(0);
+    const state = await readBoundSourceState(matched.inserted[0]!.id);
+    expect(state.kind).toBe("bound");
+    let bakeFetches = 0;
+    const savedFetch = global.fetch;
+    global.fetch = (async () => { bakeFetches += 1; throw new Error("remote"); }) as typeof fetch;
+    try {
+      if (state.kind === "bound") {
+        await bakeMaskedCardFromUrl({
+          cardId: matched.inserted[0]!.id,
+          imageUrl: "https://cdn.bubble.io/changed.jpg",
+          playerName: "Alex Player",
+          setHint: null,
+          gameSetId: null,
+          sourceBuffer: state.bytes,
+        });
+      }
+      expect(await getMaskedImagePath(matched.inserted[0]!.id, { ignoreCache: true })).toBeNull();
+    } finally {
+      global.fetch = savedFetch;
+    }
+    expect(bakeFetches).toBe(0);
+  });
+
+  it("refuses a cohort when a legacy manifest already holds the lock, in either order", async () => {
+    const fleer = "891b39b8-0058-5e55-9837-6e4830c55d32";
+    const later = "cc78d8df-0502-5876-aab4-5d6a49f72899";
+    await insertIntegratedGameSet({ id: fleer, sport: "baseball", brand: "Fleer", year: 1986, setName: "1986 Fleer Baseball", isActive: true, cardhedgeSetQuery: "1986 Fleer Baseball", cardhedgeCategory: "Baseball" });
+    await insertIntegratedGameSet({ id: later, sport: "baseball", brand: "Fleer", year: 1988, setName: "1988 Fleer Baseball", isActive: true, cardhedgeSetQuery: "1988 Fleer Baseball", cardhedgeCategory: "Baseball" });
+    const cardId = "12121212-1212-4121-8121-121212121212";
+    const laterCard = "13131313-1313-4131-8131-131313131313";
+    await db.insert(playableCards).values([
+      { id: cardId, gameSetId: fleer, cardhedgeCardId: "legacy-a", player: "Alex Player", set: "1986 Fleer Baseball", number: "1", variant: "Base", imageUrl: "https://cdn.bubble.io/a.jpg", category: "Baseball", isPlayable: true },
+      { id: laterCard, gameSetId: later, cardhedgeCardId: "legacy-b", player: "Alex Player", set: "1988 Fleer Baseball", number: "1", variant: "Base", imageUrl: "https://cdn.bubble.io/b.jpg", category: "Baseball", isPlayable: true },
+    ]).onConflictDoNothing();
+    const first = await recordOriginalMembership({ setId: fleer, slug: "1986-fleer", cardIds: [cardId], sources: [{ id: cardId, sourceUrl: "https://cdn.bubble.io/a.jpg" }] });
+    expect(first).toMatchObject({ stored: true });
+    const blocked = await createDiscoveryCohort({ setId: fleer, artifactSha256: "e".repeat(64), members: [member(1, "a".repeat(64), "not-the-legacy", "hold")] });
+    expect(blocked).toMatchObject({ ok: false, code: "legacy_membership_exists" });
+    const members = [member(1, "a".repeat(64), "race-supplier", "hold")];
+    const [legacy, cohort] = await Promise.all([
+      recordOriginalMembership({ setId: later, slug: "1988-fleer", cardIds: [laterCard], sources: [{ id: laterCard, sourceUrl: "https://cdn.bubble.io/b.jpg" }] }),
+      createDiscoveryCohort({ setId: later, artifactSha256: "e".repeat(64), members }),
+    ]);
+    const legacyWon = "stored" in legacy && legacy.stored;
+    const cohortWon = "ok" in cohort && cohort.ok;
+    expect(Number(legacyWon) + Number(cohortWon)).toBe(1);
+    await resetCohort(fleer);
+    await resetCohort(later);
+    const { cardhedgeImportRuns, designPoolSubmissions } = await import("@shared/schema");
+    await db.delete(designPoolSubmissions).where(eq(designPoolSubmissions.setId, fleer));
+    await db.delete(designPoolSubmissions).where(eq(designPoolSubmissions.setId, later));
+    await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, fleer));
+    await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, later));
+    await db.delete(playableCards).where(eq(playableCards.id, cardId));
+    await db.delete(playableCards).where(eq(playableCards.id, laterCard));
   });
 });
 

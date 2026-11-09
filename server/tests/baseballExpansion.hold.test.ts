@@ -8,7 +8,7 @@ import { createServer } from "http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
-import { cardhedgeImportRuns, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals, playableCards } from "@shared/schema";
+import { cardhedgeImportRuns, designPoolSubmissions, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals, playableCards } from "@shared/schema";
 import { CLEARED_SET_IDS, holdReasonForIdentity, isDesignApprovedSetId, isHeldSet, NO_MASK_PROFILE_REASON, refreshHeldSets } from "../config/heldSets";
 import { getMaskProfile, profileIsRegistered } from "../masking/maskProfiles";
 import { missingExpansionTargets } from "../services/baseballExpansion/registry";
@@ -111,6 +111,7 @@ afterAll(async () => {
   await db.delete(discoveryCohortMembers).where(inArray(discoveryCohortMembers.setId, ids));
   await db.delete(discoveryCohorts).where(inArray(discoveryCohorts.setId, ids));
   await db.delete(cardhedgeImportRuns).where(inArray(cardhedgeImportRuns.gameSetId, ids));
+  await db.delete(designPoolSubmissions).where(inArray(designPoolSubmissions.setId, ids));
   await db.delete(playableCards).where(inArray(playableCards.gameSetId, ids));
   await db.delete(gameSets).where(inArray(gameSets.id, ids));
   await refreshHeldSets();
