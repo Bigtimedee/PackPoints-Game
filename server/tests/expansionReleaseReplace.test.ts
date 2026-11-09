@@ -233,6 +233,7 @@ describe("atomic expansion release replacement", () => {
       expect(geometry.body).toMatchObject({ approval: false, releaseAuthorized: false });
       const [extraRow] = await db.select({ id: discoveryCohortMembers.playableCardId }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, extra.memberKey));
       const extraId = extraRow!.id!;
+      await db.update(playableCards).set({ number: "0" }).where(eq(playableCards.id, extraId));
       resetPublicMaskSetCacheForTests();
       expect((await detail()).body.cardCount).toBe(35);
       expect((await storage.getRandomCardsFromSet(SET, 40)).map((card) => card.id)).not.toContain(extraId);
@@ -322,9 +323,12 @@ describe("atomic expansion release replacement", () => {
       expect(staleExpected.body.code).toBe("release_manifest_mismatch");
       const anonymous = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, replaceBody, "nope");
       expect(anonymous.status).toBe(404);
-      resetPublicMaskSetCacheForTests();
+      await warmSetCoverCache();
+      const primedBeforeReplace = await cachedCoverCardIds(SET);
+      expect(primedBeforeReplace).not.toContain(extraId);
       expect((await activeManifest())?.id).toBe(manifestId);
       expect(Buffer.from(await (await fetch(`${base}/api/cards/${bound.releasedId}/masked-image`)).arrayBuffer())).toEqual(cards[0]!.native);
+      expect((await fetch(`${base}/api/cards/${extraId}/masked-image`)).status).toBe(404);
 
       setReplaceReleaseAfterRevokeForTests(() => { throw new Error("forced-after-revoke"); });
       await expect(replaceExpansionRelease({
@@ -333,8 +337,11 @@ describe("atomic expansion release replacement", () => {
       setReplaceReleaseAfterRevokeForTests(null);
       expect((await activeManifest())?.id).toBe(manifestId);
       expect((await db.select().from(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, SET))).map((row) => row.version)).toEqual([1]);
-      resetPublicMaskSetCacheForTests();
+      expect(await cachedCoverCardIds(SET)).toBe(primedBeforeReplace);
       expect(Buffer.from(await (await fetch(`${base}/api/cards/${bound.releasedId}/masked-image`)).arrayBuffer())).toEqual(cards[0]!.native);
+      const hiddenAfterRollback = await fetch(`${base}/api/cards/${extraId}/masked-image`, { headers: { "if-none-match": `"${CURRENT_MASK_VERSION}"` } });
+      expect(hiddenAfterRollback.status).toBe(404);
+      expect(Buffer.from(await hiddenAfterRollback.arrayBuffer()).equals(extra.native)).toBe(false);
 
       const [won, lost] = await Promise.all([
         replaceExpansionRelease({ setId: SET, ...replaceBody }),
@@ -348,7 +355,6 @@ describe("atomic expansion release replacement", () => {
       expect(committed?.memberCount).toBe(results.find((row) => row.ok)?.memberCount);
       const priorMembers = await db.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers).where(eq(expansionReleaseMembers.manifestId, manifestId));
       expect(priorMembers).toHaveLength(35);
-      resetPublicMaskSetCacheForTests();
       expect(Buffer.from(await (await fetch(`${base}/api/cards/${bound.releasedId}/masked-image`)).arrayBuffer())).toEqual(cards[0]!.native);
       const extraAfterRace = await fetch(`${base}/api/cards/${extraId}/masked-image`);
       if (committed?.memberCount === 36) expect(Buffer.from(await extraAfterRace.arrayBuffer())).toEqual(extra.native);
@@ -382,10 +388,14 @@ describe("atomic expansion release replacement", () => {
       expect(finalManifest?.memberCount).toBe(36);
       const finalMembers = await db.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers).where(eq(expansionReleaseMembers.manifestId, finalManifest!.id));
       expect(new Set(finalMembers.map((row) => row.memberKey))).toEqual(new Set(allKeys));
-      resetPublicMaskSetCacheForTests();
       expect((await detail()).body.cardCount).toBe(36);
       expect(Buffer.from(await (await fetch(`${base}/api/cards/${bound.releasedId}/masked-image`)).arrayBuffer())).toEqual(cards[0]!.native);
-      expect(Buffer.from(await (await fetch(`${base}/api/cards/${extraId}/masked-image`)).arrayBuffer())).toEqual(extra.native);
+      const published = await fetch(`${base}/api/cards/${extraId}/masked-image`, { headers: { "if-none-match": `"${CURRENT_MASK_VERSION}"` } });
+      expect(published.status).toBe(200);
+      expect(Buffer.from(await published.arrayBuffer())).toEqual(extra.native);
+      const cover = await fetch(`${base}/api/sets/${SET}/covers/0`, { headers: { "if-none-match": `"${CURRENT_MASK_VERSION}"` } });
+      expect(cover.status).toBe(200);
+      expect(Buffer.from(await cover.arrayBuffer())).toEqual(extra.native);
       expect((await storage.getRandomCardsFromSet(SET, 40)).map((card) => card.id)).toContain(extraId);
       const [cohortRow] = await db.select({ membershipSha256: discoveryCohorts.membershipSha256, originalCount: discoveryCohorts.originalCount }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, SET));
       expect(cohortRow).toEqual({ membershipSha256, originalCount: 36 });

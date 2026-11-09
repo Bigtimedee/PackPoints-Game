@@ -852,6 +852,11 @@ export async function replaceExpansionRelease(input: {
       evidenceRef: proof,
       attemptedBy: who,
     });
+    return outcome;
   }
+  const { invalidatePublicMaskSetCache } = await import("../publicMaskGate");
+  const { invalidateReleasedCoverCache } = await import("../setCovers");
+  invalidatePublicMaskSetCache(input.setId);
+  invalidateReleasedCoverCache(input.setId);
   return outcome;
 }
