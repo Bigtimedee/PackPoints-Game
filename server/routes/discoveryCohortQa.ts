@@ -15,6 +15,12 @@ import {
   registerGeometryProposal,
   stageExactSource,
 } from "../services/baseballExpansion/discoveryCohort";
+import {
+  attemptExpansionSetClearance,
+  recordOutputApproval,
+  recordServeClearance,
+  recordSourceAcceptance,
+} from "../services/baseballExpansion/perCardRelease";
 import { expansionTargetById } from "../services/baseballExpansion/registry";
 import {
   COHORT_DOCUMENT_BOUNDS,
@@ -161,5 +167,82 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
       polygonNormalized: normalized as number[][] | null,
     }).then((result) => send(res, result.ok ? 200 : 409, { ...result, releaseAuthorized: false, profileApproved: false }))
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "proposal failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/source-acceptance", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
+    if (typeof body.memberKey !== "string" || typeof body.sourceSha256 !== "string" || typeof body.evidenceRef !== "string" || typeof body.acceptedBy !== "string") {
+      return send(res, 400, { error: "acceptance needs member, hash, and evidence" });
+    }
+    void recordSourceAcceptance({
+      setId: req.params.setId,
+      memberKey: body.memberKey,
+      sourceSha256: body.sourceSha256,
+      evidenceRef: body.evidenceRef,
+      acceptedBy: body.acceptedBy,
+    }).then((result) => send(res, result.ok ? 200 : 409, { ...result, releaseAuthorized: false }))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "acceptance failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/output-approval", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
+    const native = typeof body.nativeBase64 === "string" ? Buffer.from(body.nativeBase64, "base64") : null;
+    const preview = typeof body.preview300Base64 === "string" ? Buffer.from(body.preview300Base64, "base64") : null;
+    if (!native || !preview || native.length < 1 || preview.length < 1) return send(res, 400, { error: "approval needs both opaque images" });
+    if (typeof body.memberKey !== "string" || typeof body.acceptanceId !== "string" || typeof body.proposalId !== "string" || typeof body.rendererId !== "string" || typeof body.nativeSha256 !== "string" || typeof body.preview300Sha256 !== "string" || typeof body.evidenceRef !== "string" || typeof body.approvedBy !== "string" || !Array.isArray(body.polygonPixels) || !Array.isArray(body.polygonNormalized)) {
+      return send(res, 400, { error: "approval needs member, proposal, renderer, and hashes" });
+    }
+    void recordOutputApproval({
+      setId: req.params.setId,
+      memberKey: body.memberKey,
+      acceptanceId: body.acceptanceId,
+      proposalId: body.proposalId,
+      polygonPixels: body.polygonPixels as number[][],
+      polygonNormalized: body.polygonNormalized as number[][],
+      rendererId: body.rendererId,
+      nativeBytes: native,
+      preview300Bytes: preview,
+      nativeSha256: body.nativeSha256,
+      preview300Sha256: body.preview300Sha256,
+      evidenceRef: body.evidenceRef,
+      approvedBy: body.approvedBy,
+    }).then((result) => send(res, result.ok ? 200 : 409, { ok: result.ok, id: result.ok ? result.id : undefined, unchanged: result.ok ? result.unchanged : undefined, code: result.ok ? undefined : result.code, releaseAuthorized: false }))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "approval failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/serve-clearance", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
+    if (typeof body.memberKey !== "string" || typeof body.outputApprovalId !== "string" || typeof body.evidenceRef !== "string" || typeof body.clearedBy !== "string") {
+      return send(res, 400, { error: "serve clearance needs member, output, and evidence" });
+    }
+    void recordServeClearance({
+      setId: req.params.setId,
+      memberKey: body.memberKey,
+      outputApprovalId: body.outputApprovalId,
+      evidenceRef: body.evidenceRef,
+      clearedBy: body.clearedBy,
+    }).then((result) => send(res, result.ok ? 200 : 409, { ...result, releaseAuthorized: false }))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "serve clearance failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/set-clearance", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
+    if (typeof body.evidenceRef !== "string" || typeof body.attemptedBy !== "string") {
+      return send(res, 400, { error: "set clearance needs evidence" });
+    }
+    void attemptExpansionSetClearance({
+      setId: req.params.setId,
+      evidenceRef: body.evidenceRef,
+      attemptedBy: body.attemptedBy,
+    }).then((result) => send(res, 409, result))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "set clearance failed" }); });
   });
 }

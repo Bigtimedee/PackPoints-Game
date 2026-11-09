@@ -125,6 +125,16 @@ SELECT to_regclass('public.design_pool_submissions');
 
 Confirm the backup directory on the volume is readable and the newest dump file is non-empty. `planCanonicalBackfill` is a read-only collision report an operator can run in a shell; boot does not call it. No production action is taken from this repository.
 
+## Per-card serve
+
+Source acceptance, exact-output approval, per-card serve clearance, and the set-clearance attempt are four writes. A renderer success does not create them, and neither does a card count. The approved opaque JPEG is the byte string a later cleared serve would return. The binding is the original source SHA, the set and member, the polygon, the renderer id, and the opaque native and 300 hashes. A mismatch returns no image. Missing expansion sets do not fall through to a default mask. Live sets keep their registered profiles.
+
+The expansion release floor is 35 gameplay-eligible cards. `PUBLIC_SET_MIN_ELIGIBLE_CARDS` stays 5, so this floor does not unpublish a set that is already public. 1991 Upper Deck is refused on this path. Public set, cover, game start, play mask, and Daily 5 stay held.
+
+Set clearance stays `release_denominator_unresolved`. `evaluateCohortHealth` divides by the original discovery member list. `evaluatePoolHealth` divides by the original submitted playable-id list. Both rates are 95%, and this release does not pick which list is the denominator. The recorded 1986 Fleer candidate inventory remains 448. A shorter synthetic cohort is not that inventory.
+
+The tables are `expansion_source_acceptances`, `expansion_output_approvals`, `expansion_serve_clearances`, and `expansion_set_clearance_attempts` in `shared/schema.ts`. The attempt code cannot be `authorized`. No production cohort, acceptance, or publish is part of this change.
+
 ## CI
 
 The unit-test job is the gate. Playwright is `if: false`. The live SEO name-leak step exits 0 with a warning when `PACKPTS_QA_TOKEN` is unset, so a green workflow does not mean that live check ran. The offline surname fixture is the hard SEO gate.
