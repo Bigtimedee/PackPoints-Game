@@ -489,7 +489,10 @@ function asBuffer(value: Buffer | Uint8Array): Buffer {
 }
 
 /** Legacy cards have no cohort. A cohort card with a missing or mismatched bind is refused, not fetched. */
+const CARD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function readBoundSourceState(cardId: string): Promise<BoundSourceState> {
+  if (!CARD_UUID.test(cardId)) return { kind: "legacy" };
   const [card] = await db.select({
     gameSetId: playableCards.gameSetId,
     cardhedgeCardId: playableCards.cardhedgeCardId,
