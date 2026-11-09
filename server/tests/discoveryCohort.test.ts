@@ -3,8 +3,10 @@
  */
 import { createHash } from "crypto";
 import express from "express";
+import { mkdir, rm, writeFile } from "fs/promises";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
+import path from "path";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -21,11 +23,16 @@ vi.mock("../services/cardhedge/client", async (orig) => {
 });
 
 const { db } = await import("../db");
-const { discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals, playableCards } = await import("@shared/schema");
+const { cardImageMaskCache, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals, playableCards } = await import("@shared/schema");
 const { insertIntegratedGameSet } = await import("../services/baseballExpansion/createIntegratedSet");
 const { fillMissingCards } = await import("../services/setFillMissing");
 const { sendUnmaskedCard } = await import("../services/playImageSend");
-const { bakeMaskedCardFromUrl, getMaskedImagePath } = await import("../masking/maskingService");
+const { MASKED_CARDS_DIR } = await import("../masking/maskPlanStore");
+const { getMaskedImagePath, resetMaskBakeForTests, takeBoundBakeSourceShaForTests, warmMaskedFilename } = await import("../masking/maskingService");
+const { CURRENT_MASK_VERSION } = await import("../masking/maskProfiles");
+const { handleMaskedToken } = await import("../services/playImageHttp");
+const { maskTokenMatches, maskedPlayPath } = await import("../services/playImageToken");
+const { resetPublicMaskSetCacheForTests } = await import("../services/publicMaskGate");
 const { fetchImportImage } = await import("../services/images/approvedImageFetch");
 const { recordOriginalMembership } = await import("../services/baseballExpansion/store");
 const { designApprovalDecision } = await import("../services/baseballExpansion/health");
@@ -126,6 +133,18 @@ describe("discovery cohort rules", () => {
     const calls: string[] = [];
     const body = new Uint8Array([1, 2, 3]);
     expect(await fetchImportImage("https://img.example/a.jpg", { lookup: async () => [{ address: "1.1.1.1" }], fetchImpl: fetch })).toBeNull();
+    expect(await fetchImportImage("https://127.0.0.1/a.jpg", { lookup: async () => [{ address: "1.1.1.1" }], fetchImpl: fetch })).toBeNull();
+    expect(await fetchImportImage("https://[::1]/a.jpg", { lookup: async () => [{ address: "1.1.1.1" }], fetchImpl: fetch })).toBeNull();
+    expect(await fetchImportImage("https://cdn.bubble.io/a.jpg", {
+      lookup: async () => [{ address: "100.64.0.1" }],
+      fetchImpl: (async () => { throw new Error("should not connect"); }) as typeof fetch,
+    })).toBeNull();
+    let redirects = 0;
+    expect(await fetchImportImage("https://cdn.bubble.io/a.jpg", {
+      lookup: async () => [{ address: "1.1.1.1" }],
+      fetchImpl: (async () => { redirects += 1; return { ok: false, status: 302, headers: { get: () => "https://127.0.0.1/secret" }, body: null }; }) as unknown as typeof fetch,
+    })).toBeNull();
+    expect(redirects).toBe(1);
     expect(await fetchImportImage("https://cdn.bubble.io/a.jpg", {
       lookup: async () => [{ address: "10.1.1.1" }],
       fetchImpl: (async () => { throw new Error("should not connect"); }) as typeof fetch,
@@ -334,6 +353,17 @@ describe("discovery cohort persistence", () => {
 
     const hold = await stageExactSource(OTHER, "supplier-hold", Buffer.alloc(0));
     expect(hold.ok).toBe(false);
+    let productionFetches = 0;
+    const savedProductionFetch = global.fetch;
+    global.fetch = (async () => { productionFetches += 1; throw new Error("remote"); }) as typeof fetch;
+    try {
+      const unapproved = await fillMissingCards(OTHER, { dryRun: false, details: false });
+      expect(unapproved.inserted).toEqual([]);
+      expect(unapproved.excluded.some((row) => row.cardhedgeCardId === supplierA && row.reason === "source_drift")).toBe(true);
+      expect(productionFetches).toBe(0);
+    } finally {
+      global.fetch = savedProductionFetch;
+    }
     supplierCards.push({
       card_id: "supplier-hold", player: "Held Player", set: "1990 Upper Deck Baseball", number: "2", variant: "Base", category: "Baseball", image: "https://img.example/hold.jpg",
     });
@@ -399,10 +429,27 @@ describe("discovery cohort persistence", () => {
     ]);
     expect([left.ok, right.ok].filter(Boolean).length).toBeGreaterThan(0);
     expect([left, right].every((row) => row.ok || ("code" in row && row.code === "revision_conflict" || row.code === "parent_mismatch"))).toBe(true);
-    const duplicateNumber = await recordDiscoveryAddition({
-      setId: OTHER, supplierId: "supplier-second", cardNumber: "9", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
-    });
-    expect(duplicateNumber).toMatchObject({ ok: false, code: "number_claimed" });
+    expect(await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-claimed", cardNumber: "2", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
+    })).toMatchObject({ ok: false, code: "number_claimed" });
+    expect(await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-second", cardNumber: "0", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
+    })).toMatchObject({ ok: false, code: "invalid_addition" });
+    expect(await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-second", cardNumber: "801", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
+    })).toMatchObject({ ok: false, code: "invalid_addition" });
+    expect(await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-second", cardNumber: "09", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
+    })).toMatchObject({ ok: false, code: "number_claimed" });
+    expect(await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-second", cardNumber: "11", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
+    })).toMatchObject({ ok: true, unchanged: false, countsTowardOriginal: false });
+    expect(await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-second", cardNumber: "11", sha256: "6".repeat(64), width: 41, height: 60, bytes: 10,
+    })).toMatchObject({ ok: false, code: "addition_conflict" });
+    expect(await recordDiscoveryAddition({
+      setId: OTHER, supplierId: "supplier-second", cardNumber: "12", sha256: "6".repeat(64), width: 40, height: 60, bytes: 10,
+    })).toMatchObject({ ok: false, code: "supplier_conflict" });
     const polygon = [[1, 1], [30, 1], [30, 30], [1, 30]] as [number, number][];
     const norm = polygon.map(([x, y]) => [x / 40, y / 60]);
     const measuredProposal = {
@@ -424,27 +471,71 @@ describe("discovery cohort persistence", () => {
     expect(rendered.native.length).toBeGreaterThan(0);
     expect(rendered.maskedPreview.length).toBeGreaterThan(0);
     expect(rendered.originalPreview.length).toBeGreaterThan(0);
-    const state = await readBoundSourceState(matched.inserted[0]!.id);
+    const cardId = matched.inserted[0]!.id;
+    const state = await readBoundSourceState(cardId);
     expect(state.kind).toBe("bound");
+    if (state.kind !== "bound") return;
+    const driftedUrl = "https://cdn.bubble.io/drifted-bytes.jpg";
+    await db.update(playableCards).set({ imageUrl: driftedUrl }).where(eq(playableCards.id, cardId));
+    const staleName = warmMaskedFilename(cardId);
+    const staleBytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9, 1, 2, 3, 4]);
+    await mkdir(MASKED_CARDS_DIR, { recursive: true });
+    await writeFile(path.join(MASKED_CARDS_DIR, staleName), staleBytes);
+    await db.insert(cardImageMaskCache).values({
+      cardId, rawImageUrl: driftedUrl, maskedImagePath: staleName, maskVersion: CURRENT_MASK_VERSION,
+    }).onConflictDoUpdate({
+      target: cardImageMaskCache.cardId,
+      set: { rawImageUrl: driftedUrl, maskedImagePath: staleName, maskVersion: CURRENT_MASK_VERSION },
+    });
+    resetMaskBakeForTests();
     let bakeFetches = 0;
     const savedFetch = global.fetch;
-    global.fetch = (async () => { bakeFetches += 1; throw new Error("remote"); }) as typeof fetch;
+    const remoteJpeg = await sharp({ create: { width: 40, height: 60, channels: 3, background: { r: 9, g: 9, b: 9 } } }).jpeg().toBuffer();
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) return savedFetch(input, init);
+      bakeFetches += 1;
+      return new Response(remoteJpeg, { status: 200, headers: { "Content-Type": "image/jpeg" } });
+    }) as typeof fetch;
     try {
-      if (state.kind === "bound") {
-        await bakeMaskedCardFromUrl({
-          cardId: matched.inserted[0]!.id,
-          imageUrl: "https://cdn.bubble.io/changed.jpg",
-          playerName: "Alex Player",
-          setHint: null,
-          gameSetId: null,
-          sourceBuffer: state.bytes,
+      const baked = await getMaskedImagePath(cardId);
+      expect(baked).toBeNull();
+      expect(baked).not.toBe(staleName);
+      expect(takeBoundBakeSourceShaForTests()).toBe(state.sha256);
+      expect(state.bytes.equals(jpeg)).toBe(true);
+      expect(bakeFetches).toBe(0);
+      resetPublicMaskSetCacheForTests();
+      const app = express();
+      let servedMasked = false;
+      app.get("/api/play/m/:scope/:sessionId/:index/:token", (req, res) => {
+        void handleMaskedToken(req, res, {
+          authorizeCardId: async () => "denied",
+          resolveReveal: async () => ({ ok: false, reason: "bad" }),
+          resolveMask: async (scope, sessionId, index, token) => (
+            maskTokenMatches(scope, sessionId, index, cardId, token) ? cardId : null
+          ),
+          sendUnmasked: async (response) => { response.status(500).end(); },
+          sendMasked: async () => { servedMasked = true; },
         });
+      });
+      const server = createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      try {
+        const play = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${maskedPlayPath({ scope: "solo", sessionId: "cohort-held", index: 0, cardId })}`);
+        expect(play.status).toBe(404);
+        const body = Buffer.from(await play.arrayBuffer());
+        expect(body[0]).not.toBe(0xff);
+        expect(play.headers.get("content-type") || "").toContain("json");
+        expect(servedMasked).toBe(false);
+        expect(bakeFetches).toBe(0);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
       }
-      expect(await getMaskedImagePath(matched.inserted[0]!.id, { ignoreCache: true })).toBeNull();
     } finally {
       global.fetch = savedFetch;
+      await db.delete(cardImageMaskCache).where(eq(cardImageMaskCache.cardId, cardId));
+      await rm(path.join(MASKED_CARDS_DIR, staleName), { force: true });
     }
-    expect(bakeFetches).toBe(0);
   });
 
   it("refuses a cohort when a legacy manifest already holds the lock, in either order", async () => {
@@ -462,6 +553,17 @@ describe("discovery cohort persistence", () => {
     expect(first).toMatchObject({ stored: true });
     const blocked = await createDiscoveryCohort({ setId: fleer, artifactSha256: "e".repeat(64), members: [member(1, "a".repeat(64), "not-the-legacy", "hold")] });
     expect(blocked).toMatchObject({ ok: false, code: "legacy_membership_exists" });
+    const cohortFirst = "855e8125-4169-5d0b-b04c-3513feae9637";
+    const cohortCard = "14141414-1414-4141-8141-141414141414";
+    await insertIntegratedGameSet({ id: cohortFirst, sport: "baseball", brand: "Fleer", year: 1989, setName: "1989 Fleer Baseball", isActive: true, cardhedgeSetQuery: "1989 Fleer Baseball", cardhedgeCategory: "Baseball" });
+    await db.insert(playableCards).values({
+      id: cohortCard, gameSetId: cohortFirst, cardhedgeCardId: "legacy-c", player: "Alex Player", set: "1989 Fleer Baseball", number: "1", variant: "Base", imageUrl: "https://cdn.bubble.io/c.jpg", category: "Baseball", isPlayable: true,
+    }).onConflictDoNothing();
+    await resetCohort(cohortFirst);
+    const cohortStored = await createDiscoveryCohort({ setId: cohortFirst, artifactSha256: "e".repeat(64), members: [member(1, "9".repeat(64), "cohort-first", "hold")] });
+    expect(cohortStored).toMatchObject({ ok: true });
+    const legacyAfter = await recordOriginalMembership({ setId: cohortFirst, slug: "1989-fleer", cardIds: [cohortCard], sources: [{ id: cohortCard, sourceUrl: "https://cdn.bubble.io/c.jpg" }] });
+    expect(legacyAfter).toMatchObject({ stored: false, code: "discovery_cohort_locked" });
     const members = [member(1, "a".repeat(64), "race-supplier", "hold")];
     const [legacy, cohort] = await Promise.all([
       recordOriginalMembership({ setId: later, slug: "1988-fleer", cardIds: [laterCard], sources: [{ id: laterCard, sourceUrl: "https://cdn.bubble.io/b.jpg" }] }),
@@ -472,13 +574,17 @@ describe("discovery cohort persistence", () => {
     expect(Number(legacyWon) + Number(cohortWon)).toBe(1);
     await resetCohort(fleer);
     await resetCohort(later);
+    await resetCohort(cohortFirst);
     const { cardhedgeImportRuns, designPoolSubmissions } = await import("@shared/schema");
     await db.delete(designPoolSubmissions).where(eq(designPoolSubmissions.setId, fleer));
     await db.delete(designPoolSubmissions).where(eq(designPoolSubmissions.setId, later));
+    await db.delete(designPoolSubmissions).where(eq(designPoolSubmissions.setId, cohortFirst));
     await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, fleer));
     await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, later));
+    await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, cohortFirst));
     await db.delete(playableCards).where(eq(playableCards.id, cardId));
     await db.delete(playableCards).where(eq(playableCards.id, laterCard));
+    await db.delete(playableCards).where(eq(playableCards.id, cohortCard));
   });
 });
 

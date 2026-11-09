@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import fs from "fs/promises";
 import { existsSync, unlinkSync } from "fs";
 import path from "path";
@@ -99,6 +100,12 @@ export function isMaskBakeTimeout(error: unknown): error is MaskBakeTimeoutError
 
 let bakeTimings = { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
 let pathLoaderOverride: ((cardId: string) => Promise<string | null>) | null = null;
+/** SHA-256 of the buffer the last bake accepted as its source. Null when that bake would have downloaded. */
+let boundBakeSourceSha: string | null = null;
+
+export function takeBoundBakeSourceShaForTests(): string | null {
+  return boundBakeSourceSha;
+}
 
 export function setMaskBakeTimingsForTests(next: { fetchMs: number; deadlineMs: number } | null): void {
   bakeTimings = next ?? { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
@@ -136,6 +143,7 @@ export function resetMaskBakeForTests(): void {
   coverageRefusals.clear();
   ocrSkipUntil.clear();
   pathLoaderOverride = null;
+  boundBakeSourceSha = null;
   bakeTimings = { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
   resetOcrRuntimeForTests();
 }
@@ -639,6 +647,9 @@ export async function bakeMaskedCardFromUrl(
   priority: "live" | "warm" = "live",
 ): Promise<string | null> {
   const { cardId, imageUrl } = input;
+  boundBakeSourceSha = input.sourceBuffer
+    ? createHash("sha256").update(input.sourceBuffer).digest("hex")
+    : null;
   if (input.gameSetId && isMissingExpansionId(input.gameSetId)) {
     const profile = getMaskProfile(input.setHint, input.gameSetId);
     if (!profileIsRegistered(profile, input.gameSetId)) {

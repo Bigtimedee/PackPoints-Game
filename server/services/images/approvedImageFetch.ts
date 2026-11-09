@@ -8,15 +8,14 @@ import { withSourceFetchTimeout } from "./sourceFetch";
 
 export const IMPORT_IMAGE_MAX_BYTES = 2_000_000;
 
-/** Same supplier CDNs the image proxy already trusts. Match is exact or a subdomain. */
+/** Same hosts the image proxy already trusts. Match is exact or a subdomain. */
 export const APPROVED_SUPPLIER_IMAGE_HOSTS = [
   "s3.amazonaws.com",
   "cdn.bubble.io",
   "bubble.io",
   "cardhedger.com",
   "comc.com",
-  "cloudfront.net",
-  "images.collector-cdn.com",
+  "ebayimg.com",
 ] as const;
 
 export function isApprovedSupplierImageHost(hostname: string): boolean {
@@ -24,15 +23,29 @@ export function isApprovedSupplierImageHost(hostname: string): boolean {
   return APPROVED_SUPPLIER_IMAGE_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
 }
 
+function ipv4Private(address: string): boolean {
+  const parts = address.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b, c] = parts;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
+  if (a >= 224) return true;
+  return false;
+}
+
 export function isPrivateAddress(address: string): boolean {
   const ip = address.toLowerCase().replace(/^\[|\]$/g, "");
+  if (ip === "localhost" || ip.endsWith(".localhost")) return true;
   if (ip === "::1" || ip === "::") return true;
   if (ip.startsWith("fe80:") || ip.startsWith("fc") || ip.startsWith("fd")) return true;
   const v4 = ip.startsWith("::ffff:") ? ip.slice("::ffff:".length) : ip;
-  if (/^127\./.test(v4) || /^10\./.test(v4) || /^192\.168\./.test(v4) || /^0\./.test(v4) || /^169\.254\./.test(v4)) return true;
-  const second = Number(v4.split(".")[1]);
-  if (/^172\./.test(v4) && second >= 16 && second <= 31) return true;
-  return false;
+  return ipv4Private(v4);
 }
 
 export interface ImportFetchDeps {
