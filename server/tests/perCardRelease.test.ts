@@ -18,6 +18,8 @@ import {
   discoveryImportProvenance,
   discoverySourceStaging,
   expansionOutputApprovals,
+  expansionReleaseManifests,
+  expansionReleaseMembers,
   expansionServeClearances,
   expansionSetClearanceAttempts,
   expansionSourceAcceptances,
@@ -38,10 +40,11 @@ import { designApprovalDecision } from "../services/baseballExpansion/health";
 import { PUBLIC_SET_MIN_ELIGIBLE_CARDS } from "../services/playableSetEligibility";
 import {
   EXPANSION_RELEASE_MIN_ELIGIBLE,
+  EXPANSION_RELEASE_POLICY,
   PER_CARD_RENDERER_IDS,
-  RELEASE_DENOMINATOR_STATUS,
   applyExpansionServe,
-  attemptExpansionSetClearance,
+  recordExpansionRelease,
+  revokeExpansionRelease,
   canonicalPolygon,
   countExpansionGameplayEligible,
   expansionSetIsCleared,
@@ -78,6 +81,8 @@ function cardId(prefix: string, n: number): string {
 }
 
 async function wipe(setId: string): Promise<void> {
+  await db.delete(expansionReleaseMembers).where(eq(expansionReleaseMembers.setId, setId));
+  await db.delete(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, setId));
   await db.delete(expansionServeClearances).where(eq(expansionServeClearances.setId, setId));
   await db.delete(expansionOutputApprovals).where(eq(expansionOutputApprovals.setId, setId));
   await db.delete(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.setId, setId));
@@ -91,25 +96,23 @@ async function wipe(setId: string): Promise<void> {
   await db.delete(playableCards).where(and(eq(playableCards.gameSetId, setId), like(playableCards.cardhedgeCardId, "per-card-serve:%")));
 }
 
-describe("per-card release denominator", () => {
-  it("keeps both 95% readings and does not authorize a set", () => {
-    expect(RELEASE_DENOMINATOR_STATUS.authorized).toBe(false);
-    expect(RELEASE_DENOMINATOR_STATUS.code).toBe("release_denominator_unresolved");
-    expect(RELEASE_DENOMINATOR_STATUS.retainedDiscoveryExample.count).toBe(448);
-    expect(RELEASE_DENOMINATOR_STATUS.readings.map((reading) => reading.id)).toEqual([
-      "entire_discovery_inventory",
-      "approved_submitted_playable_pool",
-    ]);
-    expect(RELEASE_DENOMINATOR_STATUS).not.toHaveProperty("selected");
+describe("per-card release policy", () => {
+  it("releases an explicit approved manifest and does not use the discovery rate", () => {
+    expect(EXPANSION_RELEASE_POLICY.discoveryRateRequired).toBe(false);
+    expect(EXPANSION_RELEASE_POLICY.releasedMemberPassRate).toBe(1);
+    expect(EXPANSION_RELEASE_POLICY.minimumReleased).toBe(35);
+    expect(EXPANSION_RELEASE_POLICY.retainedDiscoveryExample.count).toBe(448);
+    expect(EXPANSION_RELEASE_POLICY.statement).toContain("at least 35");
     expect(EXPANSION_RELEASE_MIN_ELIGIBLE).toBe(35);
     expect(PUBLIC_SET_MIN_ELIGIBLE_CARDS).toBe(5);
     expect(largeQaJsonPost("POST", `/api/qa/baseball-expansion/${floor.id}/discovery-cohort/output-approval`)).toEqual({ kind: "output", setId: floor.id });
     expect(largeQaJsonPost("GET", `/api/qa/baseball-expansion/${floor.id}/discovery-cohort/output-approval`)).toBeNull();
     const bytes = Buffer.from("approved-opaque");
-    expect(applyExpansionServe({ scope: "live", boundBytes: bytes, refuseCode: null, setCleared: true })).toEqual({ action: "passthrough" });
-    expect(applyExpansionServe({ scope: "stopped", boundBytes: bytes, refuseCode: null, setCleared: true })).toEqual({ action: "refuse", code: "ud_stopped" });
-    expect(applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: null, setCleared: false })).toEqual({ action: "refuse", code: "set_held" });
-    expect(applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: "output_hash_mismatch", setCleared: true })).toEqual({ action: "refuse", code: "output_hash_mismatch" });
+    expect(applyExpansionServe({ scope: "live", boundBytes: bytes, refuseCode: null, releasedMember: true })).toEqual({ action: "passthrough" });
+    expect(applyExpansionServe({ scope: "stopped", boundBytes: bytes, refuseCode: null, releasedMember: true })).toEqual({ action: "refuse", code: "ud_stopped" });
+    expect(applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: null, releasedMember: false })).toEqual({ action: "refuse", code: "not_released" });
+    expect(applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: "output_hash_mismatch", releasedMember: true })).toEqual({ action: "refuse", code: "output_hash_mismatch" });
+    expect(applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: null, releasedMember: true })).toEqual({ action: "serve", bytes });
   });
 });
 
@@ -392,7 +395,7 @@ describe("per-card release bindings", () => {
     expect(await readFile(path.join(MASKED_CARDS_DIR, staleName))).toEqual(staleBytes);
     expect(await publicMaskDenyReason(id)).toBe("held");
     expect(await expansionSetIsCleared(small.id)).toBe(false);
-    const attempt = await attemptExpansionSetClearance({ setId: small.id, evidenceRef: "evidence-set", attemptedBy: "reviewer" });
+    const attempt = await recordExpansionRelease({ setId: small.id, memberKeys: [], version: 1, evidenceRef: "evidence-set", clearedBy: "reviewer", discoveryMembershipSha256: "ab".repeat(32) });
     expect(attempt).toMatchObject({ ok: false, code: "below_expansion_minimum", eligibleCount: 0 });
     expect(await cohortGuardsImport(live.id)).toBe(false);
     expect(profileIsRegistered(getMaskProfile(live.identity.setName, live.id), live.id)).toBe(true);
@@ -401,9 +404,9 @@ describe("per-card release bindings", () => {
     if (!decision.ok) expect(decision.code).toBe("held_prep_only");
     expect(isDaily5ExpansionBlocked(small.id)).toBe(true);
     expect(isDaily5ExpansionBlocked(live.id)).toBe(false);
-    const stoppedAttempt = await attemptExpansionSetClearance({ setId: stopped.id, evidenceRef: "evidence-set", attemptedBy: "reviewer" });
+    const stoppedAttempt = await recordExpansionRelease({ setId: stopped.id, memberKeys: [], version: 1, evidenceRef: "evidence-set", clearedBy: "reviewer", discoveryMembershipSha256: "ab".repeat(32) });
     expect(stoppedAttempt.code).toBe("ud_stopped");
-    const liveAttempt = await attemptExpansionSetClearance({ setId: live.id, evidenceRef: "evidence-set", attemptedBy: "reviewer" });
+    const liveAttempt = await recordExpansionRelease({ setId: live.id, memberKeys: [], version: 1, evidenceRef: "evidence-set", clearedBy: "reviewer", discoveryMembershipSha256: "ab".repeat(32) });
     expect(liveAttempt.code).toBe("not_expansion");
     await refreshHeldSets();
     expect(isHeldSet(small.id)).toBe(true);
@@ -442,7 +445,7 @@ describe("per-card release bindings", () => {
       const refused = await fetch(`http://127.0.0.1:${port}/api/qa/baseball-expansion/${small.id}/discovery-cohort/set-clearance`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-qa-token": "synthetic-release-token" },
-        body: JSON.stringify({ evidenceRef: "evidence-set", attemptedBy: "reviewer" }),
+        body: JSON.stringify({ evidenceRef: "evidence-set", clearedBy: "reviewer", version: 1, memberKeys: [], discoveryMembershipSha256: "ab".repeat(32) }),
       });
       expect(refused.status).toBe(409);
       const body = await refused.json() as { ok: boolean; code: string; releaseAuthorized?: boolean };
@@ -569,22 +572,55 @@ describe("per-card release bindings", () => {
       setId: floor.id, memberKey: rows[38]!.memberKey, sourceSha256: rows[38]!.sha, evidenceRef: "evidence-floor", acceptedBy: "reviewer",
     })).toMatchObject({ ok: false, code: "not_importable" });
     expect(await countExpansionGameplayEligible(floor.id)).toBe(35);
-    const ready = await attemptExpansionSetClearance({ setId: floor.id, evidenceRef: "evidence-floor", attemptedBy: "reviewer" });
-    expect(ready).toMatchObject({ ok: false, code: "release_denominator_unresolved", eligibleCount: 35, discoveryCount: 41 });
+    if (!created.ok) throw new Error("cohort missing");
+    const approvedKeys = rows.filter((row) => row.n <= 35).map((row) => row.memberKey);
+    const releaseBase = { setId: floor.id, evidenceRef: "evidence-floor", clearedBy: "reviewer", discoveryMembershipSha256: created.membershipSha256 };
+    expect(await recordExpansionRelease({ ...releaseBase, memberKeys: approvedKeys.slice(0, 34), version: 1 })).toMatchObject({ ok: false, code: "below_expansion_minimum", eligibleCount: 34 });
+    expect(await recordExpansionRelease({ ...releaseBase, memberKeys: [...approvedKeys, rows[35]!.memberKey], version: 1 })).toMatchObject({ ok: false, code: "card_unbound" });
+    expect(await recordExpansionRelease({ ...releaseBase, memberKeys: approvedKeys, version: 1, discoveryMembershipSha256: "cd".repeat(32) })).toMatchObject({ ok: false, code: "membership_mismatch" });
+    expect(await recordExpansionRelease({ ...releaseBase, memberKeys: approvedKeys, version: 2 })).toMatchObject({ ok: false, code: "release_version_mismatch" });
+    const [firstOutput] = await db.select().from(expansionOutputApprovals).where(eq(expansionOutputApprovals.memberKey, approvedKeys[0]!));
+    await db.update(expansionOutputApprovals).set({ nativeSha256: "ab".repeat(32) }).where(eq(expansionOutputApprovals.id, firstOutput!.id));
+    expect(await recordExpansionRelease({ ...releaseBase, memberKeys: approvedKeys, version: 1 })).toMatchObject({ ok: false, code: "output_hash_mismatch" });
+    await db.update(expansionOutputApprovals).set({ nativeSha256: firstOutput!.nativeSha256, rendererId: "renderMeasuredProposal@" + "f".repeat(40) }).where(eq(expansionOutputApprovals.id, firstOutput!.id));
+    expect(await recordExpansionRelease({ ...releaseBase, memberKeys: approvedKeys, version: 1 })).toMatchObject({ ok: false, code: "renderer_mismatch" });
+    const [otherProposal] = await db.select({ id: geometryProposals.id }).from(geometryProposals).where(eq(geometryProposals.memberKey, approvedKeys[1]!));
+    await db.update(expansionOutputApprovals).set({ rendererId: firstOutput!.rendererId, proposalId: otherProposal!.id }).where(eq(expansionOutputApprovals.id, firstOutput!.id));
+    expect(await recordExpansionRelease({ ...releaseBase, memberKeys: approvedKeys, version: 1 })).toMatchObject({ ok: false, code: "proposal_mismatch" });
+    await db.update(expansionOutputApprovals).set({ proposalId: firstOutput!.proposalId }).where(eq(expansionOutputApprovals.id, firstOutput!.id));
+    const released = await recordExpansionRelease({ ...releaseBase, memberKeys: approvedKeys, version: 1 });
+    expect(released.ok).toBe(true);
+    if (!released.ok) return;
+    expect(released.memberCount).toBe(35);
+    expect(await expansionSetIsCleared(floor.id)).toBe(true);
+    const releasedCard = cardId("a1000002", 1);
+    const heldCard = cardId("a1000002", 36);
+    const stale = Buffer.from([0xff, 0xd8, 0xff, 0xd9, 1, 2, 3]);
+    await mkdir(MASKED_CARDS_DIR, { recursive: true });
+    await writeFile(path.join(MASKED_CARDS_DIR, `${releasedCard}_${CURRENT_MASK_VERSION}.jpg`), stale);
+    const servedName = await getMaskedImagePath(releasedCard);
+    expect(servedName).toBe(`${releasedCard}_${CURRENT_MASK_VERSION}.jpg`);
+    expect(await readFile(path.join(MASKED_CARDS_DIR, servedName!))).toEqual(Buffer.from("opaque-1"));
+    expect(await getMaskedImagePath(heldCard)).toBeNull();
+    await refreshHeldSets();
+    expect(isHeldSet(floor.id)).toBe(false);
+    expect(isDaily5ExpansionBlocked(floor.id)).toBe(true);
+    const opened = capture();
+    await handlePublicSetDetail({ params: { id: floor.id }, headers: {} } as never, opened.res as never);
+    expect(opened.status).not.toBe(404);
+    const [holdMember] = await db.select({ disposition: discoveryCohortMembers.disposition }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, rows[37]!.memberKey));
+    expect(holdMember?.disposition).toBe("hold");
+    const [cohort] = await db.select({ originalCount: discoveryCohorts.originalCount, membershipSha256: discoveryCohorts.membershipSha256 }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, floor.id));
+    expect(cohort).toMatchObject({ originalCount: 41, membershipSha256: created.membershipSha256 });
+    expect(EXPANSION_RELEASE_POLICY.retainedDiscoveryExample.count).toBe(448);
+    expect(await revokeExpansionRelease({ setId: floor.id, version: 1, evidenceRef: "evidence-revoke", revokedBy: "reviewer" })).toMatchObject({ ok: true, unchanged: false });
     expect(await expansionSetIsCleared(floor.id)).toBe(false);
+    expect(await getMaskedImagePath(releasedCard)).toBeNull();
     await refreshHeldSets();
     expect(isHeldSet(floor.id)).toBe(true);
-    expect(isDaily5ExpansionBlocked(floor.id)).toBe(true);
-    const detail = capture();
-    await handlePublicSetDetail({ params: { id: floor.id }, headers: {} } as never, detail.res as never);
-    expect(detail.status).toBe(404);
-    await db.delete(expansionServeClearances).where(eq(expansionServeClearances.memberKey, rows[0]!.memberKey));
-    expect(await countExpansionGameplayEligible(floor.id)).toBe(34);
-    const short = await attemptExpansionSetClearance({ setId: floor.id, evidenceRef: "evidence-floor", attemptedBy: "reviewer" });
-    expect(short).toMatchObject({ ok: false, code: "below_expansion_minimum", eligibleCount: 34, discoveryCount: 41 });
-    const [cohort] = await db.select({ originalCount: discoveryCohorts.originalCount }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, floor.id));
-    expect(cohort?.originalCount).toBe(41);
-    expect(RELEASE_DENOMINATOR_STATUS.retainedDiscoveryExample.count).toBe(448);
+    const closed = capture();
+    await handlePublicSetDetail({ params: { id: floor.id }, headers: {} } as never, closed.res as never);
+    expect(closed.status).toBe(404);
   });
 });
 

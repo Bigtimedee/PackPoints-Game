@@ -133,8 +133,11 @@ export async function refreshHeldSets(): Promise<HeldSetRecord[]> {
     .from(gameSets)
     .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)));
 
+  const { activeExpansionReleaseSetIds } = await import("../services/baseballExpansion/perCardRelease");
+  const released = new Set((await activeExpansionReleaseSetIds()).map((id) => id.toLowerCase()));
   const next = rows
     .map((row) => {
+      if (released.has(row.id.toLowerCase())) return null;
       const reason = holdReasonForIdentity(row);
       return reason ? { id: row.id, reason } : null;
     })

@@ -16,10 +16,11 @@ import {
   stageExactSource,
 } from "../services/baseballExpansion/discoveryCohort";
 import {
-  attemptExpansionSetClearance,
+  recordExpansionRelease,
   recordOutputApproval,
   recordServeClearance,
   recordSourceAcceptance,
+  revokeExpansionRelease,
 } from "../services/baseballExpansion/perCardRelease";
 import { expansionTargetById } from "../services/baseballExpansion/registry";
 import {
@@ -235,14 +236,33 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
     if (!gate(req, res)) return;
     const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
     if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
-    if (typeof body.evidenceRef !== "string" || typeof body.attemptedBy !== "string") {
-      return send(res, 400, { error: "set clearance needs evidence" });
+    if (typeof body.evidenceRef !== "string" || typeof body.clearedBy !== "string" || typeof body.discoveryMembershipSha256 !== "string" || typeof body.version !== "number" || !Array.isArray(body.memberKeys)) {
+      return send(res, 400, { error: "set clearance needs an explicit manifest" });
     }
-    void attemptExpansionSetClearance({
+    void recordExpansionRelease({
       setId: req.params.setId,
+      memberKeys: body.memberKeys.filter((key): key is string => typeof key === "string"),
+      version: body.version,
       evidenceRef: body.evidenceRef,
-      attemptedBy: body.attemptedBy,
-    }).then((result) => send(res, 409, result))
+      clearedBy: body.clearedBy,
+      discoveryMembershipSha256: body.discoveryMembershipSha256,
+    }).then((result) => send(res, result.ok ? 200 : 409, { ...result, releaseAuthorized: result.ok }))
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "set clearance failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/set-clearance/revoke", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
+    if (typeof body.evidenceRef !== "string" || typeof body.revokedBy !== "string" || typeof body.version !== "number") {
+      return send(res, 400, { error: "revocation needs version and evidence" });
+    }
+    void revokeExpansionRelease({
+      setId: req.params.setId,
+      version: body.version,
+      evidenceRef: body.evidenceRef,
+      revokedBy: body.revokedBy,
+    }).then((result) => send(res, result.ok ? 200 : 409, { ...result, releaseAuthorized: false }))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "revocation failed" }); });
   });
 }

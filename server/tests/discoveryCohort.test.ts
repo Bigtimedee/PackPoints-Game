@@ -23,7 +23,7 @@ vi.mock("../services/cardhedge/client", async (orig) => {
 });
 
 const { db } = await import("../db");
-const { cardImageMaskCache, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, expansionOutputApprovals, expansionServeClearances, expansionSourceAcceptances, gameSets, geometryProposals, playableCards } = await import("@shared/schema");
+const { cardImageMaskCache, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, expansionOutputApprovals, expansionReleaseManifests, expansionReleaseMembers, expansionServeClearances, expansionSourceAcceptances, gameSets, geometryProposals, playableCards } = await import("@shared/schema");
 const { insertIntegratedGameSet } = await import("../services/baseballExpansion/createIntegratedSet");
 const { fillMissingCards } = await import("../services/setFillMissing");
 const { sendUnmaskedCard } = await import("../services/playImageSend");
@@ -183,6 +183,8 @@ describe("discovery cohort persistence", () => {
   const supplierB = "supplier-synth-b";
 
   async function resetCohort(setId: string) {
+    await db.delete(expansionReleaseMembers).where(eq(expansionReleaseMembers.setId, setId));
+    await db.delete(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, setId));
     await db.delete(expansionServeClearances).where(eq(expansionServeClearances.setId, setId));
     await db.delete(expansionOutputApprovals).where(eq(expansionOutputApprovals.setId, setId));
     await db.delete(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.setId, setId));

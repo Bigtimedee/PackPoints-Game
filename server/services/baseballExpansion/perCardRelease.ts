@@ -2,19 +2,15 @@
  * Per-card release records for a missing expansion set.
  *
  * Source acceptance, exact-output approval, per-card serve clearance, and the
- * set-clearance attempt are separate writes. A successful render or a card
- * count does not create any of them. The set attempt cannot be stored as
- * authorized: the 95% denominator is still two different pools.
- *
- * evaluateCohortHealth divides by the original discovery member list
- * (additions excluded, a short list is partial). evaluatePoolHealth divides
- * by the original submitted playable-id list, leaves failed ids in that
- * rate, and uses a separate floor of 5. Neither reading is selected here.
+ * set manifest are separate writes. A render or a card count does not create
+ * them. Dave's release rule is an explicit manifest of at least 35 fully
+ * approved playable cards. Every other card stays held. The discovery
+ * inventory is not a 95% release denominator and is not rewritten.
  *
  * 1991 Upper Deck is refused on every transition. Live sets never enter.
  */
 import { createHash } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../../db";
 import {
   discoveryCohortMembers,
@@ -23,6 +19,8 @@ import {
   discoverySourceStaging,
   gameSets,
   expansionOutputApprovals,
+  expansionReleaseManifests,
+  expansionReleaseMembers,
   expansionServeClearances,
   expansionSetClearanceAttempts,
   expansionSourceAcceptances,
@@ -53,20 +51,13 @@ const RENDERER_IDS = new Set<string>(PER_CARD_RENDERER_IDS);
 const OUTPUT_IMAGE_MAX_BYTES = 2_000_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const RELEASE_DENOMINATOR_STATUS = {
-  authorized: false as const,
-  code: "release_denominator_unresolved" as const,
+/** Dave, Nov 9 2026, 10:36 AM CST. Discovery-wide 95% is not this gate. */
+export const EXPANSION_RELEASE_POLICY = {
+  statement: "Release each set with at least 35 fully approved playable cards; keep all other cards held.",
+  discoveryRateRequired: false as const,
+  releasedMemberPassRate: 1 as const,
+  minimumReleased: EXPANSION_RELEASE_MIN_ELIGIBLE,
   retainedDiscoveryExample: { label: "1986 Fleer recorded candidate inventory", count: 448 },
-  readings: [
-    {
-      id: "entire_discovery_inventory" as const,
-      evidence: "evaluateCohortHealth divides passCount by the original discovery member list. Additions are excluded. requiredCount marks a shorter list partial. ORIGINAL_COHORT_PASS_RATE is 0.95. The runbook records 448 Fleer 1986 candidates.",
-    },
-    {
-      id: "approved_submitted_playable_pool" as const,
-      evidence: "evaluatePoolHealth divides passedCount by originalCardIds. Failed ids stay in that denominator and are omitted from the default release list. ORIGINAL_POOL_PASS_RATE is 0.95. ENGINEERING_SET_MINIMUM stays 5 and is not this expansion floor.",
-    },
-  ],
 };
 
 export type ReleaseRefusal =
@@ -89,7 +80,11 @@ export type ReleaseRefusal =
   | "serve_conflict"
   | "card_unbound"
   | "below_expansion_minimum"
-  | "release_denominator_unresolved";
+  | "membership_mismatch"
+  | "release_version_mismatch"
+  | "release_already_active"
+  | "not_released"
+  | "release_revoked";
 
 type Recorded = { ok: true; id: string; unchanged: boolean };
 type Refused = { ok: false; code: ReleaseRefusal };
@@ -375,24 +370,29 @@ export async function inspectBoundServe(cardId: string): Promise<{ kind: "bound_
   return { kind: "bound_held", bytes: asBuffer(output!.nativeBytes)! };
 }
 
-export async function expansionSetIsCleared(_setId: string): Promise<boolean> {
-  const [row] = await db.select({ id: expansionSetClearanceAttempts.id }).from(expansionSetClearanceAttempts).where(and(
-    eq(expansionSetClearanceAttempts.setId, _setId),
-    eq(expansionSetClearanceAttempts.code, "authorized"),
+export async function expansionSetIsCleared(setId: string): Promise<boolean> {
+  const [row] = await db.select({ id: expansionReleaseManifests.id }).from(expansionReleaseManifests).where(and(
+    eq(expansionReleaseManifests.setId, setId),
+    isNull(expansionReleaseManifests.revokedAt),
   )).limit(1);
   return Boolean(row);
+}
+
+export async function activeExpansionReleaseSetIds(): Promise<string[]> {
+  const rows = await db.select({ setId: expansionReleaseManifests.setId }).from(expansionReleaseManifests).where(isNull(expansionReleaseManifests.revokedAt));
+  return rows.map((row) => row.setId);
 }
 
 export function applyExpansionServe(input: {
   scope: "live" | "expansion" | "stopped";
   boundBytes: Buffer | null;
   refuseCode: ReleaseRefusal | null;
-  setCleared: boolean;
+  releasedMember: boolean;
 }): { action: "passthrough" } | { action: "refuse"; code: string } | { action: "serve"; bytes: Buffer } {
   if (input.scope === "live") return { action: "passthrough" };
   if (input.scope === "stopped") return { action: "refuse", code: "ud_stopped" };
   if (!input.boundBytes || input.refuseCode) return { action: "refuse", code: input.refuseCode ?? "card_unbound" };
-  if (!input.setCleared) return { action: "refuse", code: "set_held" };
+  if (!input.releasedMember) return { action: "refuse", code: "not_released" };
   return { action: "serve", bytes: input.boundBytes };
 }
 
@@ -400,46 +400,175 @@ export async function expansionServeFacts(cardId: string): Promise<{
   scope: "live" | "expansion" | "stopped";
   boundBytes: Buffer | null;
   refuseCode: ReleaseRefusal | null;
-  setCleared: boolean;
+  releasedMember: boolean;
 }> {
-  if (!UUID.test(cardId)) return { scope: "live", boundBytes: null, refuseCode: null, setCleared: false };
+  if (!UUID.test(cardId)) return { scope: "live", boundBytes: null, refuseCode: null, releasedMember: false };
   const [card] = await db.select({ gameSetId: playableCards.gameSetId }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
-  if (!card?.gameSetId || scope(card.gameSetId) === "live") return { scope: "live", boundBytes: null, refuseCode: null, setCleared: false };
-  if (scope(card.gameSetId) === "stopped") return { scope: "stopped", boundBytes: null, refuseCode: "ud_stopped", setCleared: false };
+  if (!card?.gameSetId || scope(card.gameSetId) === "live") return { scope: "live", boundBytes: null, refuseCode: null, releasedMember: false };
+  if (scope(card.gameSetId) === "stopped") return { scope: "stopped", boundBytes: null, refuseCode: "ud_stopped", releasedMember: false };
   const inspected = await inspectBoundServe(cardId);
-  const setCleared = await expansionSetIsCleared(card.gameSetId);
-  if (inspected.kind === "refused") return { scope: "expansion", boundBytes: null, refuseCode: inspected.code, setCleared };
-  return { scope: "expansion", boundBytes: inspected.bytes, refuseCode: null, setCleared };
+  if (inspected.kind === "refused") return { scope: "expansion", boundBytes: null, refuseCode: inspected.code, releasedMember: false };
+  const releasedMember = await releasedMemberBytes(cardId, inspected.bytes);
+  if (!releasedMember) return { scope: "expansion", boundBytes: null, refuseCode: "not_released", releasedMember: false };
+  return { scope: "expansion", boundBytes: inspected.bytes, refuseCode: null, releasedMember: true };
 }
 
-export async function attemptExpansionSetClearance(input: {
+async function releasedMemberBytes(cardId: string, bytes: Buffer): Promise<boolean> {
+  const [row] = await db.select({
+    nativeSha256: expansionReleaseMembers.nativeSha256,
+    preview300Sha256: expansionReleaseMembers.preview300Sha256,
+    polygonSha256: expansionReleaseMembers.polygonSha256,
+    rendererId: expansionReleaseMembers.rendererId,
+    sourceSha256: expansionReleaseMembers.sourceSha256,
+  }).from(expansionReleaseMembers)
+    .innerJoin(expansionReleaseManifests, eq(expansionReleaseManifests.id, expansionReleaseMembers.manifestId))
+    .innerJoin(discoveryCohortMembers, eq(discoveryCohortMembers.memberKey, expansionReleaseMembers.memberKey))
+    .where(and(
+      eq(discoveryCohortMembers.playableCardId, cardId),
+      isNull(expansionReleaseManifests.revokedAt),
+    )).limit(1);
+  if (!row || !RENDERER_IDS.has(row.rendererId)) return false;
+  return sha256Bytes(bytes) === row.nativeSha256;
+}
+
+function releasedListSha(memberKeys: readonly string[]): string {
+  return sha256Bytes(Buffer.from([...memberKeys].sort().join("\n")));
+}
+
+async function writeClearanceAttempt(input: {
   setId: string;
+  eligibleCount: number;
+  discoveryCount: number;
+  code: string;
   evidenceRef: string;
   attemptedBy: string;
-}): Promise<{ ok: false; code: ReleaseRefusal; eligibleCount: number; discoveryCount: number; attemptId: string | null }> {
-  const proof = evidence(input.evidenceRef);
-  const who = actor(input.attemptedBy);
-  if (!proof || !who) return { ok: false, code: "evidence_required", eligibleCount: 0, discoveryCount: 0, attemptId: null };
-  const kind = scope(input.setId);
-  const [cohort] = await db.select({ originalCount: discoveryCohorts.originalCount }).from(discoveryCohorts).where(eq(discoveryCohorts.setId, input.setId)).limit(1);
-  const discoveryCount = cohort?.originalCount ?? 0;
-  const eligibleCount = kind === "expansion" ? await countExpansionGameplayEligible(input.setId) : 0;
-  const code: ReleaseRefusal = kind === "stopped"
-    ? "ud_stopped"
-    : kind === "live"
-      ? "not_expansion"
-      : eligibleCount < EXPANSION_RELEASE_MIN_ELIGIBLE
-        ? "below_expansion_minimum"
-        : "release_denominator_unresolved";
+}): Promise<void> {
   const [game] = await db.select({ id: gameSets.id }).from(gameSets).where(eq(gameSets.id, input.setId)).limit(1);
-  if (!game) return { ok: false, code, eligibleCount, discoveryCount, attemptId: null };
-  const [row] = await db.insert(expansionSetClearanceAttempts).values({
+  if (!game) return;
+  await db.insert(expansionSetClearanceAttempts).values(input);
+}
+
+export async function recordExpansionRelease(input: {
+  setId: string;
+  memberKeys: readonly string[];
+  version: number;
+  evidenceRef: string;
+  clearedBy: string;
+  discoveryMembershipSha256: string;
+}): Promise<{ ok: true; manifestId: string; version: number; memberCount: number; releasedMembershipSha256: string } | { ok: false; code: ReleaseRefusal; eligibleCount: number; discoveryCount: number }> {
+  const proof = evidence(input.evidenceRef);
+  const who = actor(input.clearedBy);
+  if (!proof || !who) return { ok: false, code: "evidence_required", eligibleCount: 0, discoveryCount: 0 };
+  if (scope(input.setId) === "stopped") return { ok: false, code: "ud_stopped", eligibleCount: 0, discoveryCount: 0 };
+  if (scope(input.setId) !== "expansion") return { ok: false, code: "not_expansion", eligibleCount: 0, discoveryCount: 0 };
+  const [cohort] = await db.select().from(discoveryCohorts).where(eq(discoveryCohorts.setId, input.setId)).limit(1);
+  const discoveryCount = cohort?.originalCount ?? 0;
+  const unique = [...new Set(input.memberKeys)];
+  if (unique.length !== input.memberKeys.length || unique.length < EXPANSION_RELEASE_MIN_ELIGIBLE) {
+    await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: "below_expansion_minimum", evidenceRef: proof, attemptedBy: who });
+    return { ok: false, code: "below_expansion_minimum", eligibleCount: unique.length, discoveryCount };
+  }
+  if (!cohort || input.discoveryMembershipSha256 !== cohort.membershipSha256) {
+    await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: "membership_mismatch", evidenceRef: proof, attemptedBy: who });
+    return { ok: false, code: "membership_mismatch", eligibleCount: unique.length, discoveryCount };
+  }
+  const [active] = await db.select({ id: expansionReleaseManifests.id }).from(expansionReleaseManifests).where(and(
+    eq(expansionReleaseManifests.setId, input.setId),
+    isNull(expansionReleaseManifests.revokedAt),
+  )).limit(1);
+  if (active) return { ok: false, code: "release_already_active", eligibleCount: unique.length, discoveryCount };
+  const [latest] = await db.select({ version: expansionReleaseManifests.version }).from(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, input.setId)).orderBy(desc(expansionReleaseManifests.version)).limit(1);
+  const nextVersion = (latest?.version ?? 0) + 1;
+  if (!Number.isInteger(input.version) || input.version !== nextVersion) {
+    await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: "release_version_mismatch", evidenceRef: proof, attemptedBy: who });
+    return { ok: false, code: "release_version_mismatch", eligibleCount: unique.length, discoveryCount };
+  }
+  const rows = await boundRows(input.setId);
+  const byKey = new Map(rows.map((row) => [row.member.memberKey, row]));
+  const approved = [];
+  for (const key of unique) {
+    const row = byKey.get(key);
+    if (!row) {
+      await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: "member_mismatch", evidenceRef: proof, attemptedBy: who });
+      return { ok: false, code: "member_mismatch", eligibleCount: unique.length, discoveryCount };
+    }
+    const code = bindingCode(row);
+    if (code || !row.output) {
+      const refusal = code ?? "output_unapproved";
+      await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: refusal, evidenceRef: proof, attemptedBy: who });
+      return { ok: false, code: refusal, eligibleCount: unique.length, discoveryCount };
+    }
+    const [proposal] = await db.select({ memberKey: geometryProposals.memberKey, polygonPixels: geometryProposals.polygonPixels }).from(geometryProposals).where(eq(geometryProposals.id, row.output.proposalId)).limit(1);
+    if (!proposal || proposal.memberKey !== row.member.memberKey || canonicalPolygon(proposal.polygonPixels ?? []) !== row.output.polygonCanonical) {
+      await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: "proposal_mismatch", evidenceRef: proof, attemptedBy: who });
+      return { ok: false, code: "proposal_mismatch", eligibleCount: unique.length, discoveryCount };
+    }
+    approved.push(row);
+  }
+  const releasedMembershipSha256 = releasedListSha(unique);
+  const manifest = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(expansionReleaseManifests).values({
+      setId: input.setId,
+      version: input.version,
+      evidenceRef: proof,
+      clearedBy: who,
+      memberCount: unique.length,
+      releasedMembershipSha256,
+      discoveryMembershipSha256: cohort.membershipSha256,
+    }).returning({ id: expansionReleaseManifests.id });
+    await tx.insert(expansionReleaseMembers).values(approved.map((row) => ({
+      manifestId: created!.id,
+      memberKey: row.member.memberKey,
+      setId: input.setId,
+      sourceSha256: row.output!.sourceSha256,
+      nativeSha256: row.output!.nativeSha256,
+      preview300Sha256: row.output!.preview300Sha256,
+      polygonSha256: row.output!.polygonSha256,
+      rendererId: row.output!.rendererId,
+      proposalId: row.output!.proposalId,
+    })));
+    await tx.insert(expansionSetClearanceAttempts).values({
+      setId: input.setId,
+      eligibleCount: unique.length,
+      discoveryCount,
+      code: "released",
+      evidenceRef: proof,
+      attemptedBy: who,
+    });
+    return created!;
+  });
+  return { ok: true, manifestId: manifest.id, version: input.version, memberCount: unique.length, releasedMembershipSha256 };
+}
+
+export async function revokeExpansionRelease(input: {
+  setId: string;
+  version: number;
+  evidenceRef: string;
+  revokedBy: string;
+}): Promise<{ ok: true; unchanged: boolean } | { ok: false; code: ReleaseRefusal }> {
+  const proof = evidence(input.evidenceRef);
+  const who = actor(input.revokedBy);
+  if (!proof || !who) return { ok: false, code: "evidence_required" };
+  if (scope(input.setId) === "stopped") return { ok: false, code: "ud_stopped" };
+  if (scope(input.setId) !== "expansion") return { ok: false, code: "not_expansion" };
+  const [row] = await db.select().from(expansionReleaseManifests).where(and(
+    eq(expansionReleaseManifests.setId, input.setId),
+    eq(expansionReleaseManifests.version, input.version),
+  )).limit(1);
+  if (!row) return { ok: false, code: "release_version_mismatch" };
+  if (row.revokedAt) return { ok: true, unchanged: true };
+  await db.update(expansionReleaseManifests).set({
+    revokedAt: new Date(),
+    revokedBy: who,
+    revocationEvidenceRef: proof,
+  }).where(eq(expansionReleaseManifests.id, row.id));
+  await writeClearanceAttempt({
     setId: input.setId,
-    eligibleCount,
-    discoveryCount,
-    code,
+    eligibleCount: row.memberCount,
+    discoveryCount: 0,
+    code: "release_revoked",
     evidenceRef: proof,
     attemptedBy: who,
-  }).returning({ id: expansionSetClearanceAttempts.id });
-  return { ok: false, code, eligibleCount, discoveryCount, attemptId: row?.id ?? null };
+  });
+  return { ok: true, unchanged: false };
 }
