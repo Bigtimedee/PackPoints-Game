@@ -23,6 +23,7 @@ import {
   recordServeClearance,
   recordSourceAcceptance,
   readStoredOpaquePreview,
+  replaceExpansionRelease,
   revokeExpansionRelease,
 } from "../services/baseballExpansion/perCardRelease";
 import { expansionTargetById } from "../services/baseballExpansion/registry";
@@ -304,6 +305,25 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
     }
     void recordExpansionRelease({
       setId: req.params.setId,
+      memberKeys: body.memberKeys.filter((key): key is string => typeof key === "string"),
+      version: body.version,
+      evidenceRef: body.evidenceRef,
+      clearedBy: body.clearedBy,
+      discoveryMembershipSha256: body.discoveryMembershipSha256,
+    }).then((result) => send(res, result.ok ? 200 : 409, { ...result, releaseAuthorized: result.ok }))
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "set clearance failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/set-clearance/replace", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
+    if (typeof body.evidenceRef !== "string" || typeof body.clearedBy !== "string" || typeof body.discoveryMembershipSha256 !== "string" || typeof body.expectedManifestId !== "string" || typeof body.version !== "number" || !Array.isArray(body.memberKeys)) {
+      return send(res, 400, { error: "replacement needs the current manifest and the full next list" });
+    }
+    void replaceExpansionRelease({
+      setId: req.params.setId,
+      expectedManifestId: body.expectedManifestId,
       memberKeys: body.memberKeys.filter((key): key is string => typeof key === "string"),
       version: body.version,
       evidenceRef: body.evidenceRef,

@@ -10,7 +10,7 @@
  * 1991 Upper Deck is refused on every transition. Live sets never enter.
  */
 import { createHash } from "crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   discoveryCohortMembers,
@@ -83,6 +83,8 @@ export type ReleaseRefusal =
   | "membership_mismatch"
   | "release_version_mismatch"
   | "release_already_active"
+  | "release_manifest_mismatch"
+  | "release_member_removed"
   | "not_released"
   | "release_revoked";
 
@@ -416,6 +418,8 @@ const EXPANSION_SERVE_REFUSALS = new Set<string>([
   "membership_mismatch",
   "release_version_mismatch",
   "release_already_active",
+  "release_manifest_mismatch",
+  "release_member_removed",
   "release_revoked",
   "acceptance_conflict",
   "output_conflict",
@@ -681,4 +685,173 @@ export async function revokeExpansionRelease(input: {
     attemptedBy: who,
   });
   return { ok: true, unchanged: false };
+}
+
+type ReleaseWrite = {
+  ok: true;
+  manifestId: string;
+  version: number;
+  memberCount: number;
+  releasedMembershipSha256: string;
+  unchanged: boolean;
+};
+type ReleaseFail = { ok: false; code: ReleaseRefusal; eligibleCount: number; discoveryCount: number };
+
+/** Test-only. A throw here aborts the replacement after the revoke update so the transaction rolls back. */
+let replaceAfterRevokeForTests: (() => void) | null = null;
+export function setReplaceReleaseAfterRevokeForTests(hook: (() => void) | null): void {
+  replaceAfterRevokeForTests = hook;
+}
+
+function sameKeySet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const seen = new Set(left);
+  return right.every((key) => seen.has(key));
+}
+
+/**
+ * Replace the one active manifest in a single transaction.
+ * The next list must contain every current member. This call does not authorize removals.
+ * Discovery rows are not written. A failed check leaves the current manifest active.
+ */
+export async function replaceExpansionRelease(input: {
+  setId: string;
+  expectedManifestId: string;
+  memberKeys: readonly string[];
+  version: number;
+  evidenceRef: string;
+  clearedBy: string;
+  discoveryMembershipSha256: string;
+}): Promise<ReleaseWrite | ReleaseFail> {
+  const proof = evidence(input.evidenceRef);
+  const who = actor(input.clearedBy);
+  if (!proof || !who) return { ok: false, code: "evidence_required", eligibleCount: 0, discoveryCount: 0 };
+  if (!UUID.test(input.expectedManifestId)) return { ok: false, code: "release_manifest_mismatch", eligibleCount: 0, discoveryCount: 0 };
+  if (scope(input.setId) === "stopped") return { ok: false, code: "ud_stopped", eligibleCount: 0, discoveryCount: 0 };
+  if (scope(input.setId) !== "expansion") return { ok: false, code: "not_expansion", eligibleCount: 0, discoveryCount: 0 };
+  const unique = [...new Set(input.memberKeys)];
+  if (unique.length !== input.memberKeys.length || unique.length < EXPANSION_RELEASE_MIN_ELIGIBLE) {
+    await writeClearanceAttempt({
+      setId: input.setId, eligibleCount: unique.length, discoveryCount: 0,
+      code: "below_expansion_minimum", evidenceRef: proof, attemptedBy: who,
+    });
+    return { ok: false, code: "below_expansion_minimum", eligibleCount: unique.length, discoveryCount: 0 };
+  }
+  const releasedMembershipSha256 = releasedListSha(unique);
+  const outcome = await db.transaction(async (tx): Promise<ReleaseWrite | ReleaseFail> => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`release-replace:${input.setId}`}))`);
+    const [active] = await tx.select().from(expansionReleaseManifests).where(and(
+      eq(expansionReleaseManifests.setId, input.setId),
+      isNull(expansionReleaseManifests.revokedAt),
+    )).for("update").limit(1);
+    if (active && active.id !== input.expectedManifestId) {
+      const [expected] = await tx.select().from(expansionReleaseManifests).where(and(
+        eq(expansionReleaseManifests.id, input.expectedManifestId),
+        eq(expansionReleaseManifests.setId, input.setId),
+      )).for("update").limit(1);
+      const currentKeys = await tx.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers).where(eq(expansionReleaseMembers.manifestId, active.id));
+      const replay = !!expected?.revokedAt
+        && active.version === input.version
+        && active.discoveryMembershipSha256 === input.discoveryMembershipSha256
+        && active.releasedMembershipSha256 === releasedMembershipSha256
+        && sameKeySet(currentKeys.map((row) => row.memberKey), unique);
+      if (replay) {
+        return {
+          ok: true, unchanged: true, manifestId: active.id, version: active.version,
+          memberCount: active.memberCount, releasedMembershipSha256: active.releasedMembershipSha256,
+        };
+      }
+      return { ok: false, code: "release_manifest_mismatch", eligibleCount: unique.length, discoveryCount: 0 };
+    }
+    if (!active) return { ok: false, code: "release_manifest_mismatch", eligibleCount: unique.length, discoveryCount: 0 };
+    const [cohort] = await tx.select().from(discoveryCohorts).where(eq(discoveryCohorts.setId, input.setId)).limit(1);
+    const discoveryCount = cohort?.originalCount ?? 0;
+    if (!cohort || input.discoveryMembershipSha256 !== cohort.membershipSha256 || active.discoveryMembershipSha256 !== cohort.membershipSha256) {
+      return { ok: false, code: "membership_mismatch", eligibleCount: unique.length, discoveryCount };
+    }
+    if (input.version !== active.version + 1) {
+      return { ok: false, code: "release_version_mismatch", eligibleCount: unique.length, discoveryCount };
+    }
+    const currentKeys = await tx.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers).where(eq(expansionReleaseMembers.manifestId, active.id));
+    const missingCurrent = currentKeys.some((row) => !unique.includes(row.memberKey));
+    if (missingCurrent) {
+      return { ok: false, code: "release_member_removed", eligibleCount: unique.length, discoveryCount };
+    }
+    const rows = await tx.select({
+      member: discoveryCohortMembers,
+      playable: playableCards,
+      provenance: discoveryImportProvenance,
+      acceptance: expansionSourceAcceptances,
+      output: expansionOutputApprovals,
+      serve: expansionServeClearances,
+    }).from(discoveryCohortMembers)
+      .leftJoin(playableCards, eq(playableCards.id, discoveryCohortMembers.playableCardId))
+      .leftJoin(discoveryImportProvenance, eq(discoveryImportProvenance.memberKey, discoveryCohortMembers.memberKey))
+      .leftJoin(expansionSourceAcceptances, eq(expansionSourceAcceptances.memberKey, discoveryCohortMembers.memberKey))
+      .leftJoin(expansionOutputApprovals, eq(expansionOutputApprovals.memberKey, discoveryCohortMembers.memberKey))
+      .leftJoin(expansionServeClearances, eq(expansionServeClearances.memberKey, discoveryCohortMembers.memberKey))
+      .where(eq(discoveryCohortMembers.setId, input.setId));
+    const byKey = new Map(rows.map((row) => [row.member.memberKey, row]));
+    const approved: typeof rows = [];
+    for (const key of unique) {
+      const row = byKey.get(key);
+      if (!row) return { ok: false, code: "member_mismatch", eligibleCount: unique.length, discoveryCount };
+      const code = bindingCode(row);
+      if (code || !row.output) return { ok: false, code: code ?? "output_unapproved", eligibleCount: unique.length, discoveryCount };
+      const [proposal] = await tx.select({ memberKey: geometryProposals.memberKey, polygonPixels: geometryProposals.polygonPixels }).from(geometryProposals).where(eq(geometryProposals.id, row.output.proposalId)).limit(1);
+      if (!proposal || proposal.memberKey !== row.member.memberKey || canonicalPolygon(proposal.polygonPixels ?? []) !== row.output.polygonCanonical) {
+        return { ok: false, code: "proposal_mismatch", eligibleCount: unique.length, discoveryCount };
+      }
+      approved.push(row);
+    }
+    await tx.update(expansionReleaseManifests).set({
+      revokedAt: new Date(),
+      revokedBy: who,
+      revocationEvidenceRef: proof,
+    }).where(eq(expansionReleaseManifests.id, active.id));
+    replaceAfterRevokeForTests?.();
+    const [created] = await tx.insert(expansionReleaseManifests).values({
+      setId: input.setId,
+      version: input.version,
+      evidenceRef: proof,
+      clearedBy: who,
+      memberCount: unique.length,
+      releasedMembershipSha256,
+      discoveryMembershipSha256: cohort.membershipSha256,
+    }).returning({ id: expansionReleaseManifests.id });
+    await tx.insert(expansionReleaseMembers).values(approved.map((row) => ({
+      manifestId: created!.id,
+      memberKey: row.member.memberKey,
+      setId: input.setId,
+      sourceSha256: row.output!.sourceSha256,
+      nativeSha256: row.output!.nativeSha256,
+      preview300Sha256: row.output!.preview300Sha256,
+      polygonSha256: row.output!.polygonSha256,
+      rendererId: row.output!.rendererId,
+      proposalId: row.output!.proposalId,
+    })));
+    await tx.insert(expansionSetClearanceAttempts).values({
+      setId: input.setId,
+      eligibleCount: unique.length,
+      discoveryCount,
+      code: "released",
+      evidenceRef: proof,
+      attemptedBy: who,
+    });
+    return {
+      ok: true, unchanged: false, manifestId: created!.id, version: input.version,
+      memberCount: unique.length, releasedMembershipSha256,
+    };
+  });
+  if (!outcome.ok) {
+    await writeClearanceAttempt({
+      setId: input.setId,
+      eligibleCount: outcome.eligibleCount,
+      discoveryCount: outcome.discoveryCount,
+      code: outcome.code,
+      evidenceRef: proof,
+      attemptedBy: who,
+    });
+  }
+  return outcome;
 }
