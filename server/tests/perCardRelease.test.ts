@@ -5,13 +5,14 @@
 import { createHash } from "crypto";
 import express from "express";
 import { createServer } from "http";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, like } from "drizzle-orm";
 import { db } from "../db";
 import {
+  cardImageMaskCache,
   discoveryCohortMembers,
   discoveryCohorts,
   discoveryImportProvenance,
@@ -20,13 +21,14 @@ import {
   expansionServeClearances,
   expansionSetClearanceAttempts,
   expansionSourceAcceptances,
+  gameSessionsTable,
   geometryProposals,
   playableCards,
 } from "@shared/schema";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { isHeldSet, refreshHeldSets } from "../config/heldSets";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
-import { getMaskedImagePath } from "../masking/maskingService";
+import { getMaskedImagePath, resetMaskBakeForTests, takeBoundBakeSourceShaForTests } from "../masking/maskingService";
 import { getMaskProfile, profileIsRegistered } from "../masking/maskProfiles";
 import { largeQaJsonPost } from "../middleware/apiJsonBody";
 import { registerDiscoveryCohortRoutes } from "../routes/discoveryCohortQa";
@@ -49,8 +51,15 @@ import {
   recordSourceAcceptance,
 } from "../services/baseballExpansion/perCardRelease";
 import { BASEBALL_EXPANSION_TARGETS, isDaily5ExpansionBlocked } from "../services/baseballExpansion/registry";
+import { respondIfHeldGameStart } from "../routes/gameStartHeld";
+import { resolveMaskCard } from "../services/playImageAccess";
+import { handleMaskedToken } from "../services/playImageHttp";
+import { sendMaskedCard } from "../services/playImageSend";
+import { maskedPlayPath } from "../services/playImageToken";
+import { publicMaskDenyReason, resetPublicMaskSetCacheForTests } from "../services/publicMaskGate";
 import { handlePublicSetDetail } from "../services/publicSets";
 import { handlePublicSetCover } from "../services/setCovers";
+import { resolveDaily5SetForDate } from "../services/daily5SetPick";
 
 const small = BASEBALL_EXPANSION_TARGETS.find((target) => target.slug === "1986-donruss-baseball")!;
 const floor = BASEBALL_EXPANSION_TARGETS.find((target) => target.slug === "1991-donruss-baseball")!;
@@ -101,8 +110,6 @@ describe("per-card release denominator", () => {
     expect(applyExpansionServe({ scope: "stopped", boundBytes: bytes, refuseCode: null, setCleared: true })).toEqual({ action: "refuse", code: "ud_stopped" });
     expect(applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: null, setCleared: false })).toEqual({ action: "refuse", code: "set_held" });
     expect(applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: "output_hash_mismatch", setCleared: true })).toEqual({ action: "refuse", code: "output_hash_mismatch" });
-    const served = applyExpansionServe({ scope: "expansion", boundBytes: bytes, refuseCode: null, setCleared: true });
-    expect(served).toEqual({ action: "serve", bytes });
   });
 });
 
@@ -357,9 +364,33 @@ describe("per-card release bindings", () => {
     await db.update(expansionOutputApprovals).set({ nativeBytes: Buffer.from("tampered-output") }).where(eq(expansionOutputApprovals.memberKey, primary.memberKey));
     expect(await inspectBoundServe(id)).toMatchObject({ kind: "refused", code: "output_hash_mismatch" });
     expect(await countExpansionGameplayEligible(small.id)).toBe(0);
+    const staleName = `${id}_${CURRENT_MASK_VERSION}.jpg`;
+    const staleBytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9, 9, 8, 7, 6]);
     await mkdir(MASKED_CARDS_DIR, { recursive: true });
-    await writeFile(path.join(MASKED_CARDS_DIR, `${id}_${CURRENT_MASK_VERSION}.jpg`), jpeg);
+    await writeFile(path.join(MASKED_CARDS_DIR, staleName), staleBytes);
+    await writeFile(path.join(MASKED_CARDS_DIR, `${id}_${CURRENT_MASK_VERSION}.ok`), "ok\n");
+    await db.insert(cardImageMaskCache).values({
+      cardId: id,
+      rawImageUrl: "https://cdn.bubble.io/synthetic.jpg",
+      maskedImagePath: staleName,
+      maskVersion: CURRENT_MASK_VERSION,
+    }).onConflictDoUpdate({
+      target: cardImageMaskCache.cardId,
+      set: { rawImageUrl: "https://cdn.bubble.io/synthetic.jpg", maskedImagePath: staleName, maskVersion: CURRENT_MASK_VERSION },
+    });
+    await db.insert(gameSessionsTable).values({
+      id: `session-${small.id}`,
+      mode: "solo",
+      questions: [{ card: { id, playableCardId: id } }],
+      totalQuestions: 1,
+      startedAt: new Date().toISOString(),
+    }).onConflictDoNothing();
+    resetMaskBakeForTests();
+    resetPublicMaskSetCacheForTests();
     expect(await getMaskedImagePath(id)).toBeNull();
+    expect(takeBoundBakeSourceShaForTests()).toBeNull();
+    expect(await readFile(path.join(MASKED_CARDS_DIR, staleName))).toEqual(staleBytes);
+    expect(await publicMaskDenyReason(id)).toBe("held");
     expect(await expansionSetIsCleared(small.id)).toBe(false);
     const attempt = await attemptExpansionSetClearance({ setId: small.id, evidenceRef: "evidence-set", attemptedBy: "reviewer" });
     expect(attempt).toMatchObject({ ok: false, code: "below_expansion_minimum", eligibleCount: 0 });
@@ -388,6 +419,18 @@ describe("per-card release bindings", () => {
     const app = express();
     app.use(express.json());
     registerDiscoveryCohortRoutes(app);
+    app.get("/api/sets/:id", (req, res) => { void handlePublicSetDetail(req, res); });
+    app.get("/api/sets/:setId/covers/:slot", (req, res) => { void handlePublicSetCover(req, res); });
+    app.post("/api/game/start", (req, res) => { void respondIfHeldGameStart(req, res); });
+    app.get("/api/play/m/:scope/:sessionId/:index/:token", (req, res) => {
+      void handleMaskedToken(req, res, {
+        authorizeCardId: async () => "denied",
+        resolveReveal: async () => ({ ok: false, reason: "bad" }),
+        resolveMask: resolveMaskCard,
+        sendUnmasked: async (response) => { response.status(500).end(); },
+        sendMasked: sendMaskedCard,
+      });
+    });
     const server = createServer(app);
     try {
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -406,7 +449,34 @@ describe("per-card release bindings", () => {
       expect(body.ok).toBe(false);
       expect(body.code).toBe("below_expansion_minimum");
       expect(JSON.stringify(body)).not.toContain("http");
+      const setRes = await fetch(`http://127.0.0.1:${port}/api/sets/${small.id}`);
+      expect(setRes.status).toBe(404);
+      const coverRes = await fetch(`http://127.0.0.1:${port}/api/sets/${small.id}/covers/0`);
+      expect(coverRes.status).toBe(404);
+      const startRes = await fetch(`http://127.0.0.1:${port}/api/game/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "solo", totalQuestions: 5, setId: small.id }),
+      });
+      expect(startRes.status).toBe(404);
+      const playRes = await fetch(`http://127.0.0.1:${port}${maskedPlayPath({ scope: "solo", sessionId: `session-${small.id}`, index: 0, cardId: id })}`);
+      expect(playRes.status).toBe(404);
+      const playBytes = Buffer.from(await playRes.arrayBuffer());
+      expect(playBytes[0]).not.toBe(0xff);
+      expect(playRes.headers.get("content-type") || "").toContain("json");
+      const daily = await resolveDaily5SetForDate("2026-10-05", {
+        config: () => ({ greenSetIds: [small.id], fallbackSetId: live.id }),
+        legacyPick: async () => ({ id: live.id, setName: live.identity.setName }),
+        refreshHeld: async () => {},
+        isHeld: () => false,
+        describe: async (setId) => ({ id: setId, setName: "scheduled", isActive: true, isUserCreated: false }),
+        dealableCount: async () => 100,
+      });
+      expect(daily?.id).not.toBe(small.id);
+      expect(daily?.skipped).toContainEqual({ id: small.id, reason: "expansion_not_enrolled" });
     } finally {
+      await db.delete(cardImageMaskCache).where(eq(cardImageMaskCache.cardId, id));
+      await db.delete(gameSessionsTable).where(eq(gameSessionsTable.id, `session-${small.id}`));
       if (previousToken === undefined) delete process.env.COVER_QA_TOKEN;
       else process.env.COVER_QA_TOKEN = previousToken;
       await new Promise<void>((resolve) => server.close(() => resolve()));

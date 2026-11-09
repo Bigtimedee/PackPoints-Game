@@ -8,7 +8,7 @@ import { createServer } from "http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
-import { cardhedgeImportRuns, designPoolSubmissions, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, gameSets, geometryProposals, playableCards } from "@shared/schema";
+import { cardhedgeImportRuns, designPoolSubmissions, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, expansionOutputApprovals, expansionServeClearances, expansionSetClearanceAttempts, expansionSourceAcceptances, gameSets, geometryProposals, playableCards } from "@shared/schema";
 import { CLEARED_SET_IDS, holdReasonForIdentity, isDesignApprovedSetId, isHeldSet, NO_MASK_PROFILE_REASON, refreshHeldSets } from "../config/heldSets";
 import { getMaskProfile, profileIsRegistered } from "../masking/maskProfiles";
 import { missingExpansionTargets } from "../services/baseballExpansion/registry";
@@ -101,6 +101,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.delete(gameSessionsTable).where(inArray(gameSessionsTable.id, targets.map((target) => `session-${target.id}`)));
+  await db.delete(expansionServeClearances).where(inArray(expansionServeClearances.setId, ids));
+  await db.delete(expansionOutputApprovals).where(inArray(expansionOutputApprovals.setId, ids));
+  await db.delete(expansionSourceAcceptances).where(inArray(expansionSourceAcceptances.setId, ids));
+  await db.delete(expansionSetClearanceAttempts).where(inArray(expansionSetClearanceAttempts.setId, ids));
   await db.update(discoveryCohortMembers).set({ playableCardId: null }).where(inArray(discoveryCohortMembers.setId, ids));
   await db.delete(discoveryImportProvenance).where(inArray(discoveryImportProvenance.setId, ids));
   await db.delete(geometryProposals).where(inArray(geometryProposals.setId, ids));

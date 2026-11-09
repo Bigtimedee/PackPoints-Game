@@ -501,6 +501,10 @@ export async function getMaskedImagePath(
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
   if (isMaskBandExcluded(cardId)) return null;
   const expansion = applyExpansionServe(await expansionServeFacts(cardId));
+  if (expansion.action === "refuse") {
+    coverageRefusals.set(cardId, expansion.code);
+    return null;
+  }
   if (expansion.action === "serve") {
     await fs.mkdir(MASKED_CARDS_DIR, { recursive: true });
     const servedName = warmMaskedFilename(cardId);
@@ -512,7 +516,7 @@ export async function getMaskedImagePath(
 
   await discardStaleHoopsBottomBake(cardId);
 
-  if (!opts?.ignoreCache && boundState.kind !== "bound" && expansion.action !== "refuse") {
+  if (!opts?.ignoreCache && boundState.kind !== "bound") {
     const warm = peekWarmMaskedFilename(cardId);
     if (warm && await acceptWarmMaskedFile(cardId, warm)) {
       return warm;
