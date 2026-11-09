@@ -28,6 +28,11 @@ const {
 } = await import("@shared/schema");
 const { insertIntegratedGameSet } = await import("../services/baseballExpansion/createIntegratedSet");
 const { registerDiscoveryCohortRoutes } = await import("../routes/discoveryCohortQa");
+const { rejectPublicMask, resetPublicMaskSetCacheForTests } = await import("../services/publicMaskGate");
+const { sendMaskedCard } = await import("../services/playImageSend");
+const { handleMaskedToken, handleRevealToken } = await import("../services/playImageHttp");
+const { maskTokenMatches, maskedPlayPath } = await import("../services/playImageToken");
+const { handlePublicSetCover } = await import("../services/setCovers");
 const { PER_CARD_RENDERER_IDS } = await import("../services/baseballExpansion/perCardRelease");
 const { isHeldSet } = await import("../config/heldSets");
 const { getMaskedImagePath, resetMaskBakeForTests } = await import("../masking/maskingService");
@@ -97,9 +102,38 @@ describe("proposal id and opaque preview", () => {
         preview: Buffer.from(`preview-${n}-${digest.slice(0, 8)}`),
       });
     }
+    const bound = { releasedId: "", heldId: "" };
     const app = express();
     app.use(express.json({ limit: "2mb" }));
     registerDiscoveryCohortRoutes(app);
+    app.get("/api/cards/:cardId/masked-image", async (req, res) => {
+      if (await rejectPublicMask(req, res, req.params.cardId)) return;
+      await sendMaskedCard(req, res, req.params.cardId);
+    });
+    app.get("/api/sets/:setId/covers/:slot", (req, res) => { void handlePublicSetCover(req, res); });
+    app.get("/api/play/m/:scope/:sessionId/:index/:token", (req, res) => {
+      void handleMaskedToken(req, res, {
+        authorizeCardId: async () => "denied",
+        resolveReveal: async () => ({ ok: false, reason: "bad" }),
+        resolveMask: async (scope, sessionId, index, token) => {
+          if (scope !== "solo" && scope !== "d5" && scope !== "ad5" && scope !== "match") return null;
+          if (bound.releasedId && maskTokenMatches(scope, sessionId, index, bound.releasedId, token)) return bound.releasedId;
+          if (bound.heldId && maskTokenMatches(scope, sessionId, index, bound.heldId, token)) return bound.heldId;
+          return null;
+        },
+        sendUnmasked: async (response) => { response.status(500).end(); },
+        sendMasked: sendMaskedCard,
+      });
+    });
+    app.get("/api/play/r/:scope/:sessionId/:index/:exp/:token", (req, res) => {
+      void handleRevealToken(req, res, {
+        authorizeCardId: async () => "denied",
+        resolveReveal: async () => ({ ok: false, reason: "bad" }),
+        resolveMask: async () => null,
+        sendUnmasked: async (response) => { response.status(500).end(); },
+        sendMasked: sendMaskedCard,
+      });
+    });
     server = createServer(app);
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -201,6 +235,15 @@ describe("proposal id and opaque preview", () => {
     const preview = await fetch(`${base}/api/qa/baseball-expansion/${SET}/discovery-cohort/output-preview/${encodeURIComponent(cards[0]!.memberKey)}/preview300`, { headers });
     expect(Buffer.from(await preview.arrayBuffer())).toEqual(cards[0]!.preview);
     const [playable] = await db.select({ id: discoveryCohortMembers.playableCardId }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, cards[0]!.memberKey));
+    bound.releasedId = playable!.id!;
+    resetPublicMaskSetCacheForTests();
+    const earlyMask = await fetch(`${base}/api/cards/${playable!.id}/masked-image`);
+    expect(earlyMask.status).toBe(404);
+    expect(await earlyMask.json()).toMatchObject({ error: "Masked image not found" });
+    const earlyCover = await fetch(`${base}/api/sets/${SET}/covers/0`);
+    expect(earlyCover.status).toBe(404);
+    const reveal = await fetch(`${base}/api/play/r/solo/sess/0/999/not-a-token`);
+    expect(reveal.status).toBe(403);
     expect(await getMaskedImagePath(playable!.id!)).toBeNull();
     const heldDetail = capture();
     await handlePublicSetDetail({ params: { id: SET }, headers: {} } as never, heldDetail.res as never);
@@ -240,7 +283,30 @@ describe("proposal id and opaque preview", () => {
     const servedName = await getMaskedImagePath(playable!.id!);
     expect(servedName).toBeTruthy();
     const [heldOut] = await db.select({ id: discoveryCohortMembers.playableCardId }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, cards[35]!.memberKey));
+    bound.heldId = heldOut!.id!;
+    resetPublicMaskSetCacheForTests();
     expect(await getMaskedImagePath(heldOut!.id!)).toBeNull();
+    const publicMask = await fetch(`${base}/api/cards/${playable!.id}/masked-image`);
+    expect(publicMask.status).toBe(200);
+    expect(publicMask.headers.get("content-type")).toContain("image/jpeg");
+    expect(Buffer.from(await publicMask.arrayBuffer())).toEqual(cards[0]!.native);
+    const play = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: "sess-release", index: 0, cardId: playable!.id! })}`);
+    expect(play.status).toBe(200);
+    expect(Buffer.from(await play.arrayBuffer())).toEqual(cards[0]!.native);
+    for (const slot of [0, 1, 2]) {
+      const cover = await fetch(`${base}/api/sets/${SET}/covers/${slot}`);
+      expect(cover.status).toBe(200);
+      expect(cover.headers.get("content-type")).toContain("image/jpeg");
+      expect(cover.headers.get("x-card-id")).toBeNull();
+      expect(Buffer.from(await cover.arrayBuffer())).toEqual(cards[slot]!.native);
+    }
+    const hidden = await fetch(`${base}/api/cards/${heldOut!.id}/masked-image`);
+    expect(hidden.status).toBe(404);
+    expect(Buffer.from(await hidden.arrayBuffer()).equals(cards[35]!.native)).toBe(false);
+    const hiddenPlay = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: "sess-held", index: 0, cardId: heldOut!.id! })}`);
+    expect(hiddenPlay.status).toBe(404);
+    const revealAfter = await fetch(`${base}/api/play/r/solo/sess/0/999/not-a-token`);
+    expect(revealAfter.status).toBe(403);
     const after = await fetch(`${base}/api/qa/baseball-expansion/${SET}/discovery-cohort/output-preview/${encodeURIComponent(cards[0]!.memberKey)}/native`, { headers });
     expect(after.headers.get("x-release-authorized")).toBe("false");
     expect(after.headers.get("x-serve-cleared")).toBe("false");

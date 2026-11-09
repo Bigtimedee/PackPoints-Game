@@ -11,6 +11,7 @@ import { scanLooksLikeImage, scanResponseContentType } from "./images/scanBytes"
 import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
+import { isExpansionServeRefusal } from "./baseballExpansion/perCardRelease";
 import { PUBLIC_MASK_CACHE_CONTROL } from "./publicMaskGate";
 import { readBoundSourceState } from "./baseballExpansion/discoveryCohort";
 
@@ -170,7 +171,7 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
 
     if (!maskedPath) {
       const refused = readMaskFailureReason(cardId) || takeCoverageRefusal(cardId);
-      if (refused) {
+      if (refused && !isExpansionServeRefusal(refused)) {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Mask-Coverage", "fail");
         res.status(422).json({

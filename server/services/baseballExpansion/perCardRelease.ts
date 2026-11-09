@@ -10,7 +10,7 @@
  * 1991 Upper Deck is refused on every transition. Live sets never enter.
  */
 import { createHash } from "crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   discoveryCohortMembers,
@@ -28,6 +28,7 @@ import {
   playableCards,
 } from "@shared/schema";
 import { isMissingExpansionId } from "./registry";
+import { eligibleDealFilter } from "../playableSetEligibility";
 import {
   measuredProposal,
   RECOGNIZED_GEOMETRY_VERSION,
@@ -394,6 +395,85 @@ export async function inspectBoundServe(cardId: string): Promise<{ kind: "bound_
   const code = bindingCode({ member, playable: card, provenance, acceptance: acceptance ?? null, output: output ?? null, serve: serve ?? null });
   if (code) return { kind: "refused", code };
   return { kind: "bound_held", bytes: asBuffer(output!.nativeBytes)! };
+}
+
+const EXPANSION_SERVE_REFUSALS = new Set<string>([
+  "ud_stopped",
+  "not_expansion",
+  "not_released",
+  "card_unbound",
+  "output_unapproved",
+  "output_hash_mismatch",
+  "serve_unbound",
+  "source_unaccepted",
+  "member_mismatch",
+  "set_mismatch",
+  "renderer_mismatch",
+  "polygon_rejected",
+  "proposal_mismatch",
+  "evidence_required",
+  "not_importable",
+  "below_expansion_minimum",
+  "membership_mismatch",
+  "release_version_mismatch",
+  "release_already_active",
+  "release_revoked",
+  "acceptance_conflict",
+  "output_conflict",
+  "serve_conflict",
+  "source_drift",
+]);
+
+export function isExpansionServeRefusal(code: string | null | undefined): boolean {
+  return !!code && EXPANSION_SERVE_REFUSALS.has(code);
+}
+
+/** Playable ids on the active manifest whose stored opaque still matches its hash. */
+export async function releasedExpansionCoverIds(setId: string, limit = 8): Promise<string[]> {
+  if (scope(setId) !== "expansion" || limit < 1) return [];
+  const rows = await db.select({
+    id: playableCards.id,
+    number: playableCards.number,
+    memberKey: expansionReleaseMembers.memberKey,
+  }).from(expansionReleaseMembers)
+    .innerJoin(expansionReleaseManifests, eq(expansionReleaseManifests.id, expansionReleaseMembers.manifestId))
+    .innerJoin(discoveryCohortMembers, eq(discoveryCohortMembers.memberKey, expansionReleaseMembers.memberKey))
+    .innerJoin(playableCards, eq(playableCards.id, discoveryCohortMembers.playableCardId))
+    .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
+    .where(and(
+      eq(expansionReleaseManifests.setId, setId),
+      isNull(expansionReleaseManifests.revokedAt),
+      eq(playableCards.gameSetId, setId),
+      eligibleDealFilter("playable_cards"),
+      sql`LOWER(${playableCards.category}) = LOWER(${gameSets.sport})`,
+    ));
+  const verified: Array<{ id: string; number: number }> = [];
+  for (const row of rows) {
+    const preview = await readStoredOpaquePreview({ setId, memberKey: row.memberKey, variant: "native" });
+    if (!preview.ok) continue;
+    const parsed = Number(row.number);
+    verified.push({ id: row.id, number: Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER });
+  }
+  verified.sort((a, b) => a.number - b.number || a.id.localeCompare(b.id));
+  return verified.slice(0, limit).map((row) => row.id);
+}
+
+/** Stored native bytes for a card on the active manifest. Null when it is not released or the hash drifted. */
+export async function readReleasedOpaqueForCard(cardId: string): Promise<Buffer | null> {
+  const [card] = await db.select({ gameSetId: playableCards.gameSetId }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
+  if (!card?.gameSetId || scope(card.gameSetId) !== "expansion") return null;
+  const [member] = await db.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers)
+    .innerJoin(expansionReleaseManifests, eq(expansionReleaseManifests.id, expansionReleaseMembers.manifestId))
+    .innerJoin(discoveryCohortMembers, eq(discoveryCohortMembers.memberKey, expansionReleaseMembers.memberKey))
+    .where(and(
+      eq(discoveryCohortMembers.playableCardId, cardId),
+      eq(expansionReleaseManifests.setId, card.gameSetId),
+      isNull(expansionReleaseManifests.revokedAt),
+    ))
+    .limit(1);
+  if (!member) return null;
+  const preview = await readStoredOpaquePreview({ setId: card.gameSetId, memberKey: member.memberKey, variant: "native" });
+  return preview.ok ? preview.bytes : null;
 }
 
 export async function expansionSetIsCleared(setId: string): Promise<boolean> {

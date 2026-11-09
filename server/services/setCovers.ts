@@ -14,6 +14,7 @@ import type { Request, Response } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { CURRENT_MASK_VERSION, isMaskSetUuid } from "@shared/maskGeometry";
 import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT, SET_COVER_WIDTHS, setCoverVersionFromEtag } from "@shared/setCoverUrl";
+import { readReleasedOpaqueForCard, releasedExpansionCoverIds } from "./baseballExpansion/perCardRelease";
 import sharp from "sharp";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
@@ -319,7 +320,10 @@ export async function logPinnedCoversAtBoot(): Promise<void> {
 async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]>> {
   const reports = await resolvePinnedCoverReports(setIds);
   const out = new Map<string, string[]>();
-  for (const setId of setIds) out.set(setId, reports.get(setId)?.validIds ?? []);
+  for (const setId of setIds) {
+    const pinned = reports.get(setId)?.validIds ?? [];
+    out.set(setId, pinned.length > 0 ? pinned : await releasedExpansionCoverIds(setId, SET_COVER_SLOT_COUNT));
+  }
   return out;
 }
 
@@ -814,7 +818,8 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
   try {
     const cardId = (await cachedCoverCardIds(setId))[slot];
     const file = cardId ? resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId) : null;
-    if (!file || !cardId) {
+    const releasedBytes = !file && cardId ? await readReleasedOpaqueForCard(cardId) : null;
+    if ((!file && !releasedBytes) || !cardId) {
       coverNotReady(res);
       return;
     }
@@ -835,6 +840,25 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
     setCoverHeaders(res, etag, cardId, { webp, versioned });
     if (req.method === "HEAD") {
       res.status(200).end();
+      return;
+    }
+
+    if (!file && releasedBytes) {
+      let body = releasedBytes;
+      if (webp) {
+        try {
+          body = await sharp(releasedBytes).resize({ width: width!, withoutEnlargement: true }).webp({ quality: 74, effort: 4 }).toBuffer();
+        } catch {
+          body = releasedBytes;
+          setCoverHeaders(res, baseEtag, cardId, { versioned: false });
+        }
+      }
+      res.setHeader("Content-Length", String(body.length));
+      res.end(body);
+      return;
+    }
+    if (!file) {
+      coverNotReady(res);
       return;
     }
 
