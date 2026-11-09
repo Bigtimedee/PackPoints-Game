@@ -4,7 +4,7 @@
  */
 import { createHash } from "crypto";
 import express from "express";
-import { readdir, readFile } from "fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import path from "path";
@@ -34,8 +34,9 @@ const { rejectPublicMask, resetPublicMaskSetCacheForTests } = await import("../s
 const { sendMaskedCard } = await import("../services/playImageSend");
 const { handleMaskedToken, handleRevealToken } = await import("../services/playImageHttp");
 const { maskTokenMatches, maskedPlayPath } = await import("../services/playImageToken");
-const { handlePublicSetCover } = await import("../services/setCovers");
+const { cachedCoverCardIds, clearLastGoodCoversForTests, clearReadyCoverIndexForTests, clearSetCoverCaches, handlePublicSetCover, setCoverWarmReadyForTests, warmSetCoverCache } = await import("../services/setCovers");
 const { PER_CARD_RENDERER_IDS } = await import("../services/baseballExpansion/perCardRelease");
+const { CURRENT_MASK_VERSION } = await import("@shared/maskGeometry");
 const { isHeldSet } = await import("../config/heldSets");
 const { getMaskedImagePath, resetMaskBakeForTests } = await import("../masking/maskingService");
 const { MASKED_CARDS_DIR } = await import("../masking/maskPlanStore");
@@ -295,17 +296,42 @@ describe("proposal id and opaque preview", () => {
     expect(publicMask.headers.get("content-type")).toContain("image/jpeg");
     expect(Buffer.from(await publicMask.arrayBuffer())).toEqual(cards[0]!.native);
     expect(await readFile(path.join(MASKED_CARDS_DIR, servedName!))).toEqual(cards[0]!.native);
+    const staleCover = Buffer.from("stale-warm-cover-not-approved-jpeg");
+    const staleName = `${playable!.id}_${CURRENT_MASK_VERSION}.jpg`;
+    const staleMarker = `${playable!.id}_${CURRENT_MASK_VERSION}.ok`;
+    await mkdir(MASKED_CARDS_DIR, { recursive: true });
+    await writeFile(path.join(MASKED_CARDS_DIR, staleName), staleCover);
+    await writeFile(path.join(MASKED_CARDS_DIR, staleMarker), "ok\n");
+    const previousCoverCache = process.env.SET_COVER_CACHE;
+    process.env.SET_COVER_CACHE = "1";
+    try {
+    clearSetCoverCaches();
+    clearReadyCoverIndexForTests();
+    clearLastGoodCoversForTests();
+    setCoverWarmReadyForTests(true);
     const filesBeforeCovers = new Set(await readdir(MASKED_CARDS_DIR).catch(() => [] as string[]));
     const play = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: "sess-release", index: 0, cardId: playable!.id! })}`);
     expect(play.status).toBe(200);
     expect(Buffer.from(await play.arrayBuffer())).toEqual(cards[0]!.native);
+    await warmSetCoverCache();
+    const primedCovers = await cachedCoverCardIds(SET);
+    expect(process.env.SET_COVER_CACHE).toBe("1");
+    expect(primedCovers[0]).toBe(playable!.id);
+    let openEtag = "";
     for (const slot of [0, 1, 2]) {
       const cover = await fetch(`${base}/api/sets/${SET}/covers/${slot}`);
       expect(cover.status).toBe(200);
       expect(cover.headers.get("content-type")).toContain("image/jpeg");
       expect(cover.headers.get("x-card-id")).toBeNull();
-      expect(Buffer.from(await cover.arrayBuffer())).toEqual(cards[slot]!.native);
+      const body = Buffer.from(await cover.arrayBuffer());
+      expect(body).toEqual(cards[slot]!.native);
+      expect(body.equals(staleCover)).toBe(false);
+      if (slot === 0) openEtag = cover.headers.get("etag") ?? "";
     }
+    expect(openEtag).not.toBe("");
+    const fresh304 = await fetch(`${base}/api/sets/${SET}/covers/0`, { headers: { "if-none-match": openEtag } });
+    expect(fresh304.status).toBe(304);
+    expect(await cachedCoverCardIds(SET)).toBe(primedCovers);
     const createdByCovers = (await readdir(MASKED_CARDS_DIR).catch(() => [] as string[])).filter((name) => !filesBeforeCovers.has(name) && !name.endsWith(".ok"));
     expect(createdByCovers).toEqual([]);
     const hidden = await fetch(`${base}/api/cards/${heldOut!.id}/masked-image`);
@@ -325,13 +351,17 @@ describe("proposal id and opaque preview", () => {
       expect(Buffer.from(await mask.arrayBuffer()).equals(releasedNative), label).toBe(false);
       const played = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: "sess-release", index: 0, cardId: releasedId })}`);
       expect(played.status, label).toBe(404);
+      expect(await cachedCoverCardIds(SET), label).toBe(primedCovers);
       for (let slot = 0; slot < 8; slot += 1) {
-        const cover = await fetch(`${base}/api/sets/${SET}/covers/${slot}`);
+        const cover = await fetch(`${base}/api/sets/${SET}/covers/${slot}`, { headers: { "if-none-match": openEtag } });
+        expect(cover.status, label).not.toBe(304);
         if (cover.status !== 200) {
           expect(cover.status, label).toBe(404);
           continue;
         }
-        expect(Buffer.from(await cover.arrayBuffer()).equals(releasedNative), `${label} cover ${slot}`).toBe(false);
+        const body = Buffer.from(await cover.arrayBuffer());
+        expect(body.equals(releasedNative), `${label} cover ${slot}`).toBe(false);
+        expect(body.equals(staleCover), `${label} stale ${slot}`).toBe(false);
       }
     };
     const reopened = async () => {
@@ -341,7 +371,9 @@ describe("proposal id and opaque preview", () => {
       expect(Buffer.from(await mask.arrayBuffer())).toEqual(releasedNative);
       const cover = await fetch(`${base}/api/sets/${SET}/covers/0`);
       expect(cover.status).toBe(200);
-      expect(Buffer.from(await cover.arrayBuffer())).toEqual(releasedNative);
+      const coverBody = Buffer.from(await cover.arrayBuffer());
+      expect(coverBody).toEqual(releasedNative);
+      expect(coverBody.equals(staleCover)).toBe(false);
     };
     const [serveRow] = await db.select().from(expansionServeClearances).where(eq(expansionServeClearances.memberKey, releasedKey));
     await db.delete(expansionServeClearances).where(eq(expansionServeClearances.id, serveRow!.id));
@@ -413,6 +445,16 @@ describe("proposal id and opaque preview", () => {
     const stoppedPreview = await fetch(`${base}/api/qa/baseball-expansion/${UD_1991_DISCOVERY.setId}/discovery-cohort/output-preview/${encodeURIComponent(cards[0]!.memberKey)}/native`, { headers });
     expect(stoppedPreview.status).toBe(409);
     expect(await stoppedPreview.json()).toMatchObject({ ok: false, code: "ud_stopped", releaseAuthorized: false });
+    } finally {
+      if (previousCoverCache === undefined) delete process.env.SET_COVER_CACHE;
+      else process.env.SET_COVER_CACHE = previousCoverCache;
+      clearSetCoverCaches();
+      clearReadyCoverIndexForTests();
+      clearLastGoodCoversForTests();
+      setCoverWarmReadyForTests(false);
+      await rm(path.join(MASKED_CARDS_DIR, staleName), { force: true });
+      await rm(path.join(MASKED_CARDS_DIR, staleMarker), { force: true });
+    }
   }, 180000);
 });
 

@@ -7,8 +7,11 @@ describe("set cover hot path", () => {
 
   it("never renders a mask on the request path and reads pre-baked sidecar files", () => {
     const handler = src.slice(src.indexOf("export async function handlePublicSetCover"));
-    expect(handler).toContain("resolveReadyWarmMaskedFile");
-    expect(handler).toContain("readReleasedOpaqueForCard");
+    const closedAt = handler.indexOf("expansion.kind === \"closed\"");
+    const warmAt = handler.indexOf("resolveReadyWarmMaskedFile");
+    expect(closedAt).toBeGreaterThan(0);
+    expect(warmAt).toBeGreaterThan(closedAt);
+    expect(handler).toContain("publicExpansionImage");
     expect(handler).toContain("res.end(releasedBytes)");
     expect(handler).not.toMatch(/renderMask|bakeMask|sharp\(/);
   });

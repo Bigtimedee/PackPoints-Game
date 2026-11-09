@@ -462,8 +462,22 @@ export async function releasedExpansionCoverIds(setId: string, limit = 8): Promi
  * The bytes are the approved JPEG. This does not render, resize, or fetch.
  */
 export async function readReleasedOpaqueForCard(cardId: string): Promise<Buffer | null> {
+  const image = await publicExpansionImage(cardId);
+  return image.kind === "serve" ? image.bytes : null;
+}
+
+/**
+ * Current expansion binding for a public image route.
+ * Live cards stay on the legacy sidecar path. A closed expansion card must not
+ * fall through to a warm file, a pinned file, or a cached id.
+ */
+export async function publicExpansionImage(cardId: string): Promise<
+  { kind: "live" } | { kind: "closed" } | { kind: "serve"; bytes: Buffer }
+> {
   const decision = applyExpansionServe(await expansionServeFacts(cardId));
-  return decision.action === "serve" ? decision.bytes : null;
+  if (decision.action === "passthrough") return { kind: "live" };
+  if (decision.action === "serve") return { kind: "serve", bytes: decision.bytes };
+  return { kind: "closed" };
 }
 
 export async function expansionSetIsCleared(setId: string): Promise<boolean> {

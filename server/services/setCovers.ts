@@ -14,7 +14,7 @@ import type { Request, Response } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { CURRENT_MASK_VERSION, isMaskSetUuid } from "@shared/maskGeometry";
 import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT, SET_COVER_WIDTHS, setCoverVersionFromEtag } from "@shared/setCoverUrl";
-import { readReleasedOpaqueForCard, releasedExpansionCoverIds } from "./baseballExpansion/perCardRelease";
+import { publicExpansionImage, releasedExpansionCoverIds } from "./baseballExpansion/perCardRelease";
 import sharp from "sharp";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
@@ -817,9 +817,19 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
 
   try {
     const cardId = (await cachedCoverCardIds(setId))[slot];
-    const file = cardId ? resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId) : null;
-    const releasedBytes = !file && cardId ? await readReleasedOpaqueForCard(cardId) : null;
-    if ((!file && !releasedBytes) || !cardId) {
+    if (!cardId) {
+      coverNotReady(res);
+      return;
+    }
+    // Binding is decided before a warm file, a pinned file, a cached id, or a 304.
+    const expansion = await publicExpansionImage(cardId);
+    if (expansion.kind === "closed") {
+      coverNotReady(res);
+      return;
+    }
+    const releasedBytes = expansion.kind === "serve" ? expansion.bytes : null;
+    const file = releasedBytes ? null : resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
+    if (!file && !releasedBytes) {
       coverNotReady(res);
       return;
     }
