@@ -485,7 +485,7 @@ export async function recordExpansionRelease(input: {
   }
   const rows = await boundRows(input.setId);
   const byKey = new Map(rows.map((row) => [row.member.memberKey, row]));
-  const approved = [];
+  const approved: Array<Awaited<ReturnType<typeof boundRows>>[number]> = [];
   for (const key of unique) {
     const row = byKey.get(key);
     if (!row) {
