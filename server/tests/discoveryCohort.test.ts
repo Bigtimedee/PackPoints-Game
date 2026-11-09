@@ -50,6 +50,8 @@ const {
   readDiscoveryCohort,
   recordDiscoveryAddition,
   insertGuardedPlayable,
+  cohortGuardsImport,
+  loadExactSourceGate,
   readBoundSourceState,
   registerGeometryProposal,
   renderMeasuredProposal,
@@ -213,6 +215,27 @@ describe("discovery cohort persistence", () => {
   afterAll(async () => {
     await resetCohort(OTHER);
     await resetCohort(UD);
+  });
+
+  it("refuses every held expansion import until that set has a cohort", async () => {
+    const topps = "14f17bb7-a697-5080-9ec5-381c6d7e15ce";
+    await insertIntegratedGameSet({
+      id: topps, sport: "baseball", brand: "Topps", year: 1991, setName: "1991 Topps Baseball",
+      isActive: true, cardhedgeSetQuery: "1991 Topps Baseball", cardhedgeCategory: "Baseball",
+    });
+    await db.update(gameSets).set({ isActive: true }).where(eq(gameSets.id, topps));
+    expect(await cohortGuardsImport(topps)).toBe(true);
+    expect(await cohortGuardsImport("3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4")).toBe(false);
+    const gate = await loadExactSourceGate(topps);
+    expect(gate("supplier-topps-1991", "8")).toBe("exact_source_required");
+    supplierCards.splice(0, supplierCards.length, {
+      card_id: "supplier-topps-1991", player: "Alex Player", set: "1991 Topps Baseball", number: "8", variant: "Base", category: "Baseball", image: "https://cdn.bubble.io/a.jpg",
+    });
+    const report = await fillMissingCards(topps, { dryRun: false, details: false, fetchImage: async () => jpeg });
+    expect(report.inserted).toEqual([]);
+    expect(report.excluded.some((row) => row.reason === "exact_source_required")).toBe(true);
+    expect(report.sourceValidated).toBe(false);
+    expect(await db.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.cardhedgeCardId, "supplier-topps-1991"))).toEqual([]);
   });
 
   it("keeps the original cohort across a later read, rejects a changed membership, and appends revisions", async () => {
