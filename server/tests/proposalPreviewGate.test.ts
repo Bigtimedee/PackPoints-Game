@@ -4,8 +4,10 @@
  */
 import { createHash } from "crypto";
 import express from "express";
+import { readdir, readFile } from "fs/promises";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
+import path from "path";
 import sharp from "sharp";
 import { afterAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -36,6 +38,8 @@ const { handlePublicSetCover } = await import("../services/setCovers");
 const { PER_CARD_RENDERER_IDS } = await import("../services/baseballExpansion/perCardRelease");
 const { isHeldSet } = await import("../config/heldSets");
 const { getMaskedImagePath, resetMaskBakeForTests } = await import("../masking/maskingService");
+const { MASKED_CARDS_DIR } = await import("../masking/maskPlanStore");
+const { releasedExpansionCoverIds } = await import("../services/baseballExpansion/perCardRelease");
 const { handlePublicSetDetail } = await import("../services/publicSets");
 const { isDaily5ExpansionBlocked } = await import("../services/baseballExpansion/registry");
 const { UD_1991_DISCOVERY } = await import("../services/baseballExpansion/discoveryCohort");
@@ -290,6 +294,8 @@ describe("proposal id and opaque preview", () => {
     expect(publicMask.status).toBe(200);
     expect(publicMask.headers.get("content-type")).toContain("image/jpeg");
     expect(Buffer.from(await publicMask.arrayBuffer())).toEqual(cards[0]!.native);
+    expect(await readFile(path.join(MASKED_CARDS_DIR, servedName!))).toEqual(cards[0]!.native);
+    const filesBeforeCovers = new Set(await readdir(MASKED_CARDS_DIR).catch(() => [] as string[]));
     const play = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: "sess-release", index: 0, cardId: playable!.id! })}`);
     expect(play.status).toBe(200);
     expect(Buffer.from(await play.arrayBuffer())).toEqual(cards[0]!.native);
@@ -300,6 +306,8 @@ describe("proposal id and opaque preview", () => {
       expect(cover.headers.get("x-card-id")).toBeNull();
       expect(Buffer.from(await cover.arrayBuffer())).toEqual(cards[slot]!.native);
     }
+    const createdByCovers = (await readdir(MASKED_CARDS_DIR).catch(() => [] as string[])).filter((name) => !filesBeforeCovers.has(name) && !name.endsWith(".ok"));
+    expect(createdByCovers).toEqual([]);
     const hidden = await fetch(`${base}/api/cards/${heldOut!.id}/masked-image`);
     expect(hidden.status).toBe(404);
     expect(Buffer.from(await hidden.arrayBuffer()).equals(cards[35]!.native)).toBe(false);
@@ -307,6 +315,76 @@ describe("proposal id and opaque preview", () => {
     expect(hiddenPlay.status).toBe(404);
     const revealAfter = await fetch(`${base}/api/play/r/solo/sess/0/999/not-a-token`);
     expect(revealAfter.status).toBe(403);
+    const releasedNative = cards[0]!.native;
+    const releasedKey = cards[0]!.memberKey;
+    const releasedId = playable!.id!;
+    const expectClosed = async (label: string) => {
+      resetPublicMaskSetCacheForTests();
+      const mask = await fetch(`${base}/api/cards/${releasedId}/masked-image`);
+      expect(mask.status, label).toBe(404);
+      expect(Buffer.from(await mask.arrayBuffer()).equals(releasedNative), label).toBe(false);
+      const played = await fetch(`${base}${maskedPlayPath({ scope: "solo", sessionId: "sess-release", index: 0, cardId: releasedId })}`);
+      expect(played.status, label).toBe(404);
+      for (let slot = 0; slot < 8; slot += 1) {
+        const cover = await fetch(`${base}/api/sets/${SET}/covers/${slot}`);
+        if (cover.status !== 200) {
+          expect(cover.status, label).toBe(404);
+          continue;
+        }
+        expect(Buffer.from(await cover.arrayBuffer()).equals(releasedNative), `${label} cover ${slot}`).toBe(false);
+      }
+    };
+    const reopened = async () => {
+      resetPublicMaskSetCacheForTests();
+      const mask = await fetch(`${base}/api/cards/${releasedId}/masked-image`);
+      expect(mask.status).toBe(200);
+      expect(Buffer.from(await mask.arrayBuffer())).toEqual(releasedNative);
+      const cover = await fetch(`${base}/api/sets/${SET}/covers/0`);
+      expect(cover.status).toBe(200);
+      expect(Buffer.from(await cover.arrayBuffer())).toEqual(releasedNative);
+    };
+    const [serveRow] = await db.select().from(expansionServeClearances).where(eq(expansionServeClearances.memberKey, releasedKey));
+    await db.delete(expansionServeClearances).where(eq(expansionServeClearances.id, serveRow!.id));
+    try { await expectClosed("serve clearance"); } finally { await db.insert(expansionServeClearances).values(serveRow!); }
+    await reopened();
+    const [acceptance] = await db.select().from(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.memberKey, releasedKey));
+    await db.update(expansionSourceAcceptances).set({ sourceSha256: "ab".repeat(32) }).where(eq(expansionSourceAcceptances.id, acceptance!.id));
+    try { await expectClosed("source acceptance"); } finally { await db.update(expansionSourceAcceptances).set({ sourceSha256: acceptance!.sourceSha256 }).where(eq(expansionSourceAcceptances.id, acceptance!.id)); }
+    await reopened();
+    const [provenance] = await db.select().from(discoveryImportProvenance).where(eq(discoveryImportProvenance.memberKey, releasedKey));
+    await db.update(discoveryImportProvenance).set({ sha256: "cd".repeat(32) }).where(eq(discoveryImportProvenance.playableCardId, provenance!.playableCardId));
+    try { await expectClosed("provenance"); } finally { await db.update(discoveryImportProvenance).set({ sha256: provenance!.sha256 }).where(eq(discoveryImportProvenance.playableCardId, provenance!.playableCardId)); }
+    await reopened();
+    await db.update(playableCards).set({ isPlayable: false }).where(eq(playableCards.id, releasedId));
+    try { await expectClosed("playable"); } finally { await db.update(playableCards).set({ isPlayable: true }).where(eq(playableCards.id, releasedId)); }
+    await reopened();
+    const [playableRow] = await db.select({ imageUrl: playableCards.imageUrl }).from(playableCards).where(eq(playableCards.id, releasedId));
+    await db.update(playableCards).set({ imageUrl: "http://cdn.bubble.io/not-https.jpg" }).where(eq(playableCards.id, releasedId));
+    try { await expectClosed("source url"); } finally { await db.update(playableCards).set({ imageUrl: playableRow!.imageUrl }).where(eq(playableCards.id, releasedId)); }
+    await reopened();
+    const [output] = await db.select().from(expansionOutputApprovals).where(eq(expansionOutputApprovals.memberKey, releasedKey));
+    await db.update(expansionOutputApprovals).set({ rendererId: `renderMeasuredProposal@${"f".repeat(40)}` }).where(eq(expansionOutputApprovals.id, output!.id));
+    try { await expectClosed("renderer"); } finally { await db.update(expansionOutputApprovals).set({ rendererId: output!.rendererId }).where(eq(expansionOutputApprovals.id, output!.id)); }
+    await reopened();
+    await db.update(expansionOutputApprovals).set({ geometryVersion: "not-a-plate" }).where(eq(expansionOutputApprovals.id, output!.id));
+    try { await expectClosed("geometry"); } finally { await db.update(expansionOutputApprovals).set({ geometryVersion: output!.geometryVersion }).where(eq(expansionOutputApprovals.id, output!.id)); }
+    await reopened();
+    await db.update(expansionOutputApprovals).set({ polygonSha256: "ef".repeat(32) }).where(eq(expansionOutputApprovals.id, output!.id));
+    try { await expectClosed("polygon"); } finally { await db.update(expansionOutputApprovals).set({ polygonSha256: output!.polygonSha256 }).where(eq(expansionOutputApprovals.id, output!.id)); }
+    await reopened();
+    await db.update(expansionOutputApprovals).set({ acceptanceId: acceptanceIds[1] }).where(eq(expansionOutputApprovals.id, output!.id));
+    try { await expectClosed("acceptance binding"); } finally { await db.update(expansionOutputApprovals).set({ acceptanceId: output!.acceptanceId }).where(eq(expansionOutputApprovals.id, output!.id)); }
+    await reopened();
+    await db.update(expansionOutputApprovals).set({ nativeSha256: "aa".repeat(32) }).where(eq(expansionOutputApprovals.id, output!.id));
+    try { await expectClosed("output hash"); } finally { await db.update(expansionOutputApprovals).set({ nativeSha256: output!.nativeSha256 }).where(eq(expansionOutputApprovals.id, output!.id)); }
+    await reopened();
+    const [manifestMember] = await db.select().from(expansionReleaseMembers).where(eq(expansionReleaseMembers.memberKey, releasedKey));
+    await db.update(expansionReleaseMembers).set({ nativeSha256: "bb".repeat(32) }).where(eq(expansionReleaseMembers.memberKey, releasedKey));
+    try { await expectClosed("manifest hash"); } finally { await db.update(expansionReleaseMembers).set({ nativeSha256: manifestMember!.nativeSha256 }).where(eq(expansionReleaseMembers.memberKey, releasedKey)); }
+    await reopened();
+    await db.update(discoveryCohortMembers).set({ disposition: "hold" }).where(eq(discoveryCohortMembers.memberKey, releasedKey));
+    try { await expectClosed("disposition"); } finally { await db.update(discoveryCohortMembers).set({ disposition: "pass-candidate" }).where(eq(discoveryCohortMembers.memberKey, releasedKey)); }
+    await reopened();
     const after = await fetch(`${base}/api/qa/baseball-expansion/${SET}/discovery-cohort/output-preview/${encodeURIComponent(cards[0]!.memberKey)}/native`, { headers });
     expect(after.headers.get("x-release-authorized")).toBe("false");
     expect(after.headers.get("x-serve-cleared")).toBe("false");
@@ -315,6 +393,19 @@ describe("proposal id and opaque preview", () => {
     expect(drifted.status).toBe(409);
     const driftedBody = await drifted.json() as { code: string; releaseAuthorized: boolean };
     expect(driftedBody).toMatchObject({ ok: false, code: "output_hash_mismatch", releaseAuthorized: false });
+    const driftedPublic = await fetch(`${base}/api/cards/${heldOut!.id}/masked-image`);
+    expect(driftedPublic.status).toBe(404);
+    expect(Buffer.from(await driftedPublic.arrayBuffer()).equals(cards[35]!.native)).toBe(false);
+    await db.delete(expansionServeClearances).where(eq(expansionServeClearances.memberKey, cards[10]!.memberKey));
+    await db.delete(expansionOutputApprovals).where(eq(expansionOutputApprovals.memberKey, cards[10]!.memberKey));
+    const [unapproved] = await db.select({ id: discoveryCohortMembers.playableCardId }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, cards[10]!.memberKey));
+    resetPublicMaskSetCacheForTests();
+    const unapprovedMask = await fetch(`${base}/api/cards/${unapproved!.id}/masked-image`);
+    expect(unapprovedMask.status).toBe(404);
+    expect(Buffer.from(await unapprovedMask.arrayBuffer()).equals(cards[10]!.native)).toBe(false);
+    expect(await releasedExpansionCoverIds(UD_1991_DISCOVERY.setId)).toEqual([]);
+    const udCover = await fetch(`${base}/api/sets/${UD_1991_DISCOVERY.setId}/covers/0`);
+    expect(udCover.status).toBe(404);
     expect(acceptanceIds).toHaveLength(36);
     const stopped = await fetch(`${base}/api/qa/baseball-expansion/${UD_1991_DISCOVERY.setId}/geometry-proposals`, { headers });
     expect(stopped.status).toBe(409);
@@ -322,7 +413,7 @@ describe("proposal id and opaque preview", () => {
     const stoppedPreview = await fetch(`${base}/api/qa/baseball-expansion/${UD_1991_DISCOVERY.setId}/discovery-cohort/output-preview/${encodeURIComponent(cards[0]!.memberKey)}/native`, { headers });
     expect(stoppedPreview.status).toBe(409);
     expect(await stoppedPreview.json()).toMatchObject({ ok: false, code: "ud_stopped", releaseAuthorized: false });
-  }, 120000);
+  }, 180000);
 });
 
 function capture(): { status?: number; res: { status: (code: number) => unknown; json: (body: unknown) => unknown; setHeader: () => unknown; removeHeader: () => unknown; end: () => unknown; headersSent: boolean } } {

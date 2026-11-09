@@ -11,7 +11,7 @@ import { scanLooksLikeImage, scanResponseContentType } from "./images/scanBytes"
 import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
-import { isExpansionServeRefusal } from "./baseballExpansion/perCardRelease";
+import { applyExpansionServe, expansionServeFacts, isExpansionServeRefusal } from "./baseballExpansion/perCardRelease";
 import { PUBLIC_MASK_CACHE_CONTROL } from "./publicMaskGate";
 import { readBoundSourceState } from "./baseballExpansion/discoveryCohort";
 
@@ -162,6 +162,23 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
   try {
     if (isMaskBandExcluded(cardId)) {
       res.status(404).json({ error: "Unable to generate masked image" });
+      return;
+    }
+    const expansion = applyExpansionServe(await expansionServeFacts(cardId));
+    if (expansion.action === "refuse") {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(404).json({ error: "Masked image not found" });
+      return;
+    }
+    if (expansion.action === "serve") {
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
+      res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
+      res.setHeader("X-Mask-Cache", "stored");
+      res.setHeader("Content-Security-Policy", "default-src 'none'");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Length", String(expansion.bytes.length));
+      res.end(expansion.bytes);
       return;
     }
     const warmName = peekWarmMaskedFilename(cardId);

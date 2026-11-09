@@ -10,7 +10,7 @@
  * 1991 Upper Deck is refused on every transition. Live sets never enter.
  */
 import { createHash } from "crypto";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../../db";
 import {
   discoveryCohortMembers,
@@ -28,7 +28,6 @@ import {
   playableCards,
 } from "@shared/schema";
 import { isMissingExpansionId } from "./registry";
-import { eligibleDealFilter } from "../playableSetEligibility";
 import {
   measuredProposal,
   RECOGNIZED_GEOMETRY_VERSION,
@@ -428,52 +427,43 @@ export function isExpansionServeRefusal(code: string | null | undefined): boolea
   return !!code && EXPANSION_SERVE_REFUSALS.has(code);
 }
 
-/** Playable ids on the active manifest whose stored opaque still matches its hash. */
+/** Playable ids the public mask would serve, in card-number order. */
 export async function releasedExpansionCoverIds(setId: string, limit = 8): Promise<string[]> {
   if (scope(setId) !== "expansion" || limit < 1) return [];
   const rows = await db.select({
     id: playableCards.id,
     number: playableCards.number,
-    memberKey: expansionReleaseMembers.memberKey,
   }).from(expansionReleaseMembers)
     .innerJoin(expansionReleaseManifests, eq(expansionReleaseManifests.id, expansionReleaseMembers.manifestId))
     .innerJoin(discoveryCohortMembers, eq(discoveryCohortMembers.memberKey, expansionReleaseMembers.memberKey))
     .innerJoin(playableCards, eq(playableCards.id, discoveryCohortMembers.playableCardId))
-    .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
     .where(and(
       eq(expansionReleaseManifests.setId, setId),
       isNull(expansionReleaseManifests.revokedAt),
       eq(playableCards.gameSetId, setId),
-      eligibleDealFilter("playable_cards"),
-      sql`LOWER(${playableCards.category}) = LOWER(${gameSets.sport})`,
     ));
-  const verified: Array<{ id: string; number: number }> = [];
-  for (const row of rows) {
-    const preview = await readStoredOpaquePreview({ setId, memberKey: row.memberKey, variant: "native" });
-    if (!preview.ok) continue;
-    const parsed = Number(row.number);
-    verified.push({ id: row.id, number: Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER });
+  const ordered = rows
+    .map((row) => {
+      const parsed = Number(row.number);
+      return { id: row.id, number: Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER };
+    })
+    .sort((a, b) => a.number - b.number || a.id.localeCompare(b.id));
+  const ids: string[] = [];
+  for (const row of ordered) {
+    if (!await readReleasedOpaqueForCard(row.id)) continue;
+    ids.push(row.id);
+    if (ids.length >= limit) break;
   }
-  verified.sort((a, b) => a.number - b.number || a.id.localeCompare(b.id));
-  return verified.slice(0, limit).map((row) => row.id);
+  return ids;
 }
 
-/** Stored native bytes for a card on the active manifest. Null when it is not released or the hash drifted. */
+/**
+ * Stored native bytes only when the public mask would serve this card.
+ * The bytes are the approved JPEG. This does not render, resize, or fetch.
+ */
 export async function readReleasedOpaqueForCard(cardId: string): Promise<Buffer | null> {
-  const [card] = await db.select({ gameSetId: playableCards.gameSetId }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
-  if (!card?.gameSetId || scope(card.gameSetId) !== "expansion") return null;
-  const [member] = await db.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers)
-    .innerJoin(expansionReleaseManifests, eq(expansionReleaseManifests.id, expansionReleaseMembers.manifestId))
-    .innerJoin(discoveryCohortMembers, eq(discoveryCohortMembers.memberKey, expansionReleaseMembers.memberKey))
-    .where(and(
-      eq(discoveryCohortMembers.playableCardId, cardId),
-      eq(expansionReleaseManifests.setId, card.gameSetId),
-      isNull(expansionReleaseManifests.revokedAt),
-    ))
-    .limit(1);
-  if (!member) return null;
-  const preview = await readStoredOpaquePreview({ setId: card.gameSetId, memberKey: member.memberKey, variant: "native" });
-  return preview.ok ? preview.bytes : null;
+  const decision = applyExpansionServe(await expansionServeFacts(cardId));
+  return decision.action === "serve" ? decision.bytes : null;
 }
 
 export async function expansionSetIsCleared(setId: string): Promise<boolean> {
