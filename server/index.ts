@@ -37,6 +37,7 @@ import { releaseTrustedBandRefusals } from "./masking/trustedBandRelease";
 import { logPinnedCoversAtBoot, startSetCoverWarmer } from "./services/setCovers";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
+import { installApiJsonParser } from "./middleware/apiJsonBody";
 
 // --- Environment validation ---
 function validateEnvironment() {
@@ -116,16 +117,7 @@ export async function bootAfterListen(
   } catch (error) {
     console.error("[MaskProfile] trusted band release failed", error);
   }
-  app.use((req, res, next) => {
-  if (req.path.startsWith('/webhooks/')) {
-    return next();
-  }
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  })(req, res, next);
-});
+  installApiJsonParser(app);
 
 app.use(express.urlencoded({ extended: false }));
 

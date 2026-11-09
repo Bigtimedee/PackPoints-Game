@@ -16,6 +16,12 @@ import {
   stageExactSource,
 } from "../services/baseballExpansion/discoveryCohort";
 import { expansionTargetById } from "../services/baseballExpansion/registry";
+import {
+  COHORT_DOCUMENT_BOUNDS,
+  STAGE_IMAGE_MAX_BYTES,
+  jsonDocumentWithinBounds,
+  stageBase64CharCap,
+} from "../middleware/apiJsonBody";
 
 function send(res: Response, status: number, payload: unknown): void {
   applyNoStoreHeaders(res);
@@ -44,6 +50,9 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
   app.post("/api/qa/baseball-expansion/:setId/discovery-cohort", (req, res) => {
     if (!gate(req, res)) return;
     const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!jsonDocumentWithinBounds(body, COHORT_DOCUMENT_BOUNDS)) {
+      return send(res, 400, { error: "members are not a cohort" });
+    }
     if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
     const target = expansionTargetById(req.params.setId);
     const members = parseCohortMembers(body.members, target?.baseCount ?? 0);
@@ -112,12 +121,12 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
   app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/stage", (req, res) => {
     if (!gate(req, res)) return;
     const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
-    const maxEncoded = Math.ceil(2_000_000 * 4 / 3) + 4;
+    const maxEncoded = stageBase64CharCap();
     if (!noUrl(body) || typeof body.supplierId !== "string" || typeof body.imageBase64 !== "string" || body.imageBase64.length > maxEncoded) {
       return send(res, 400, { error: "stage needs supplierId and imageBase64, not a URL" });
     }
     const bytes = Buffer.from(body.imageBase64, "base64");
-    if (bytes.length < 1 || bytes.length > 2_000_000) return send(res, 400, { error: "stage needs supplierId and imageBase64, not a URL" });
+    if (bytes.length < 1 || bytes.length > STAGE_IMAGE_MAX_BYTES) return send(res, 400, { error: "stage needs supplierId and imageBase64, not a URL" });
     void stageExactSource(req.params.setId, body.supplierId, bytes)
       .then((result) => send(res, result.ok ? 200 : 409, { ...result, sourceValidated: false, releaseAuthorized: false }))
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "stage failed" }); });
