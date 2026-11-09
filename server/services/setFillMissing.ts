@@ -22,6 +22,7 @@ import { cardhedgeImportRuns, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { DONRUSS_1987_HOLD_ID } from "../config/heldSets";
 import { expansionFillConfigs } from "./baseballExpansion/registry";
+import { cohortGuardsImport, fetchImportImage, insertGuardedPlayable, loadExactSourceGate } from "./baseballExpansion/discoveryCohort";
 import { classifyCard } from "./cardClassifier";
 import { cardDetails, cardSearch, normalizeImageUrl, type CardHedgeCard } from "./cardhedge/client";
 
@@ -126,6 +127,8 @@ export interface FillMissingOptions {
    * Ids only. Not image URLs and not a source-quality approval of the rest.
    */
   rejectCardIds?: ReadonlySet<string>;
+  /** Test double for the supplier image GET. Production downloads the candidate URL. */
+  fetchImage?: (url: string) => Promise<Buffer | null>;
 }
 
 export interface ConflictOwner {
@@ -383,8 +386,15 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
   let detailsLookups = 0;
   let detailsImagesFound = 0;
   const candidates: FillCandidate[] = [];
+  const exactSource = await loadExactSourceGate(setId);
   for (const cand of pending) {
     const n = normalizeBaseNumber(cand.number)!;
+    const exact = exactSource(cand.cardhedgeCardId, cand.number);
+    if (exact) {
+      bump(skipped, exact);
+      excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: exact });
+      continue;
+    }
     if (opts.rejectCardIds?.has(cand.cardhedgeCardId)) {
       bump(skipped, "reviewed_source_reject");
       excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: "reviewed_source_reject" });
@@ -478,8 +488,37 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
     .returning({ id: cardhedgeImportRuns.id });
   report.importRunId = run.id;
   const byCh = new Map(candidates.map((c) => [c.cardhedgeCardId, c]));
+  const guardsImport = await cohortGuardsImport(setId);
   for (const cand of candidates) {
     const card = byId.get(cand.cardhedgeCardId)!;
+    if (guardsImport) {
+      const downloaded = await (opts.fetchImage ?? fetchImportImage)(cand.imageUrl || "");
+      const saved = await insertGuardedPlayable({
+        setId,
+        supplierId: cand.cardhedgeCardId,
+        cardNumber: cand.number,
+        downloaded,
+        values: {
+          description: card.description ?? null,
+          player: card.player || "",
+          set: card.set ?? null,
+          number: card.number ?? null,
+          variant: card.variant ?? null,
+          imageUrl: cand.imageUrl || "",
+          category: card.category ?? null,
+          rookie: card.rookie ?? null,
+          isPlayable: !isThirdPartyPhotoHost(cand.imageUrl),
+          blockedReason: isThirdPartyPhotoHost(cand.imageUrl) ? THIRD_PARTY_PHOTO_REASON : null,
+        },
+      });
+      if (!saved.ok) {
+        bump(skipped, saved.code);
+        excluded.push({ cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, reason: saved.code });
+        continue;
+      }
+      if (!saved.unchanged) report.inserted.push({ id: saved.id, cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player });
+      continue;
+    }
     const rows = await db.insert(playableCards).values({
       gameSetId: setId,
       cardhedgeCardId: cand.cardhedgeCardId,

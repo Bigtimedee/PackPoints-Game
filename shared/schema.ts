@@ -5281,3 +5281,123 @@ export const designPoolSubmissions = pgTable("design_pool_submissions", {
 }, (table) => [
   check("design_pool_submissions_count_nonneg", sql`${table.originalCount} >= 0`),
 ]);
+
+/**
+ * Immutable pre-import discovery cohort. Members exist before playable_cards.
+ * The original hash and dimensions stay on the member. Later scans append
+ * revisions. Additions are outside the original denominator.
+ */
+export const discoveryCohorts = pgTable("discovery_cohorts", {
+  setId: varchar("set_id").primaryKey().references(() => gameSets.id),
+  artifactSha256: varchar("artifact_sha256", { length: 64 }).notNull(),
+  membershipSha256: varchar("membership_sha256", { length: 64 }).notNull(),
+  originalCount: integer("original_count").notNull(),
+  checklistCount: integer("checklist_count").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("discovery_cohorts_count_pos", sql`${table.originalCount} > 0`),
+]);
+
+export const discoveryCohortMembers = pgTable("discovery_cohort_members", {
+  memberKey: text("member_key").primaryKey(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  ordinal: integer("ordinal").notNull(),
+  cardNumber: varchar("card_number", { length: 8 }).notNull(),
+  supplierId: text("supplier_id").notNull(),
+  originalSha256: varchar("original_sha256", { length: 64 }).notNull(),
+  originalWidth: integer("original_width").notNull(),
+  originalHeight: integer("original_height").notNull(),
+  originalBytes: integer("original_bytes").notNull(),
+  disposition: text("disposition").notNull(),
+  routing: text("routing").notNull(),
+  playableCardId: varchar("playable_card_id").references(() => playableCards.id, { onDelete: "set null" }),
+}, (table) => [
+  uniqueIndex("uq_discovery_member_supplier").on(table.setId, table.supplierId),
+  uniqueIndex("uq_discovery_member_number").on(table.setId, table.cardNumber),
+  uniqueIndex("uq_discovery_member_ordinal").on(table.setId, table.ordinal),
+  check("discovery_member_disposition", sql`${table.disposition} IN ('pass-candidate', 'hold', 'drop')`),
+]);
+
+export const discoverySourceRevisions = pgTable("discovery_source_revisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  revision: integer("revision").notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  bytes: integer("bytes").notNull(),
+  parentSha256: varchar("parent_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_discovery_revision").on(table.memberKey, table.revision),
+]);
+
+export const discoveryAdditions = pgTable("discovery_additions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  supplierId: text("supplier_id").notNull(),
+  cardNumber: varchar("card_number", { length: 8 }).notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  bytes: integer("bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_discovery_addition_supplier").on(table.setId, table.supplierId),
+  uniqueIndex("uq_discovery_addition_number").on(table.setId, table.cardNumber),
+]);
+
+/** Immutable bytes staged for one original member. Import must match these bytes. */
+export const discoverySourceStaging = pgTable("discovery_source_staging", {
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  supplierId: text("supplier_id").notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  bytes: integer("bytes").notNull(),
+  imageBytes: bytea("image_bytes").notNull(),
+  stagedAt: timestamp("staged_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.setId, table.supplierId] }),
+]);
+
+/**
+ * Links an inserted playable card to the staged bytes. source_accepted and
+ * opaque_qa_passed stay false: a hash match is not a review pass.
+ */
+export const discoveryImportProvenance = pgTable("discovery_import_provenance", {
+  playableCardId: varchar("playable_card_id").primaryKey().references(() => playableCards.id, { onDelete: "cascade" }),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  supplierId: text("supplier_id").notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  byteLength: integer("byte_length").notNull(),
+  sourceAccepted: boolean("source_accepted").notNull().default(false),
+  opaqueQaPassed: boolean("opaque_qa_passed").notNull().default(false),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_discovery_provenance_member").on(table.memberKey),
+  check("discovery_provenance_not_accepted", sql`${table.sourceAccepted} = false`),
+  check("discovery_provenance_not_opaque_qa", sql`${table.opaqueQaPassed} = false`),
+]);
+
+/**
+ * Private geometry proposal. approval is constrained false: this row is not
+ * a mask profile and not a Design clearance.
+ */
+export const geometryProposals = pgTable("geometry_proposals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  supplierId: text("supplier_id").notNull(),
+  sourceSha256: varchar("source_sha256", { length: 64 }).notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  geometryVersion: text("geometry_version"),
+  polygonPixels: jsonb("polygon_pixels").$type<number[][] | null>(),
+  polygonNormalized: jsonb("polygon_normalized").$type<number[][] | null>(),
+  approval: boolean("approval").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("geometry_proposals_not_approved", sql`${table.approval} = false`),
+]);

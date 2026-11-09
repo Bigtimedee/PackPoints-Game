@@ -60,7 +60,7 @@ All 16 missing targets now have a published checklist length. `confirmImport` re
 
 Provenance on each row is the BaseballCardPedia base checklist opened Nov 8, 2026. Supplier previews are complete and inserted nothing. Candidate totals, which are not these caps: 1990 Topps 305, 1991 Topps 317, Fleer 1986–1991 448, 21, 145, 267, 429, 55, Donruss 1986 and 1988–1991 142, 267, 364, 512, 413, Upper Deck 1989–1991 122, 462, 486. That is 4,755 candidates. Profiles stay unregistered, public routes stay 404, and Daily 5 stays blocked.
 
-A held insert does not validate the scan. The job report sets `sourceValidated` false. The importer does not measure width or height, does not hash the file, and does not refuse a landscape composite. Passing the checklist cap only means the printed number is in range.
+A held insert does not validate the scan. The job report sets `sourceValidated` false. The fill job does not download a scan. Passing the checklist cap only means the printed number is in range. `rejectCardIds` is not a positive allowlist: a different supplier id for the same number can still be claimed.
 
 Known-bad scans stay in the private box inventory. Pass their supplier ids on the existing fill call as `rejectCardIds`. Do not commit those ids, file hashes, or image URLs. A preview with that field shows the reduced candidate list and still inserts nothing. The same field on `confirmImport` skips those ids with `reviewed_source_reject` and leaves the checklist number open. The other rows still land held for card review. Nothing in that call approves a card, a profile, or the set.
 
@@ -72,6 +72,16 @@ curl -sS -X POST "$BASE/api/qa/sets/<id>/fill-missing" "${HDR[@]}" \
 `rejectCardIds` accepts up to 2,000 opaque ids and refuses a value that contains `://` or `/`. After a held import, public set, cover, game-start, and play-mask routes still 404. A short side under 600 is flagged later by the Design packet. A tall scan or a front-and-back composite is not. Those stay on the private reject list until Design accepts a replacement source. Do not stretch, crop, or deal them.
 
 Held discovery remains the path only when `baseCount` is null. These sixteen are no longer on that path.
+
+## 1991 Upper Deck discovery cohort
+
+Set `cd597562-5b8f-5517-aca0-38b04f443747` stays held. Its checklist cap is 800. The discovery cohort is a separate 486-member denominator. A 150-candidate list or a 22-sample pack is not that cohort and cannot become it: the create call requires 486 members and artifact SHA `11bf0c4dd539aa61663d8db11cd6794542258ef560c8e09517df5a406f972922`. The private member file is not in this repo. This deploy does not submit it.
+
+`POST /api/qa/baseball-expansion/:id/discovery-cohort` with `X-QA-Token` stores supplier ids, hashes, and dimensions. It does not accept an image URL. The same body a second time is unchanged. A different body is `409 membership_mismatch` and does not replace the first rows. Revisions append under the original member. Additions do not enter the original rate. A playable id may stay null.
+
+Before any insert, `POST .../discovery-cohort/stage` with `supplierId` and `imageBase64` stores those bytes when they match a pass-candidate member. Holds and drops are `not_importable`. A hash or dimension mismatch is `source_drift` and is not stored. `confirmImport` downloads the candidate URL from an approved supplier host, with a streaming size cap, and writes the card, the member link, and the provenance row in one transaction. It inserts only when those bytes equal the staged bytes. A later change at that URL does not insert, and a guarded card with a missing bind is not fetched. The mask bake uses the stored bytes and does not return a warm file after that URL changes. The public play route stays 404. A legacy design-pool row blocks a later cohort for the same set. Another supplier id for the same number is `unregistered_source`. No cohort yet means `exact_source_required` and no insert. The denylist does not replace this gate. A staged or imported pass-candidate is not a review pass: source acceptance and opaque QA stay false, and `reviewReady` stays false while any original member is unimported, held, dropped, or unmeasured. Revisions are an audit append only. They do not authorize a replacement import. The create call also requires the canonical membership digest `336a18397f2b2a6b9d88d03860399e72da33b53084ad714d63affc18edef6207`. Repeating the artifact SHA with a different body is `membership_mismatch`.
+
+Geometry proposals are private rows. `approval` cannot be true. A null version or a null polygon is stored as unmeasured and cannot be used. A wrong hash or wrong dimensions is refused. A proposal does not clear a hold and does not register a mask profile. Public set, cover, game-start, play-mask, and Daily 5 routes stay closed.
 
 ## Box export
 

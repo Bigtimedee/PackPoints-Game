@@ -12,6 +12,7 @@ import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
 import { PUBLIC_MASK_CACHE_CONTROL } from "./publicMaskGate";
+import { readBoundSourceState } from "./baseballExpansion/discoveryCohort";
 
 function setUnmaskedResponseHeaders(res: Response, contentType: string): void {
   setUnmaskedHeaders(res);
@@ -34,6 +35,17 @@ function endUnmasked(res: Response, body?: Buffer): void {
 /** Original scan. Caller must already have authorized this card. */
 export async function sendUnmaskedCard(res: Response, cardId: string): Promise<void> {
   try {
+    const bound = await readBoundSourceState(cardId);
+    if (bound.kind === "refused") {
+      setUnmaskedHeaders(res);
+      res.status(404).json({ error: "Image not available" });
+      return;
+    }
+    if (bound.kind === "bound") {
+      setUnmaskedResponseHeaders(res, "image/jpeg");
+      endUnmasked(res, bound.bytes);
+      return;
+    }
     let sourceUrl = await getCachedImageUrl(cardId);
     if (!sourceUrl) sourceUrl = await getSourceUrlForCard(cardId);
     if (!sourceUrl) {

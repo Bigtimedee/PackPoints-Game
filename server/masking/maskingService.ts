@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import fs from "fs/promises";
 import { existsSync, unlinkSync } from "fs";
 import path from "path";
@@ -99,6 +100,12 @@ export function isMaskBakeTimeout(error: unknown): error is MaskBakeTimeoutError
 
 let bakeTimings = { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
 let pathLoaderOverride: ((cardId: string) => Promise<string | null>) | null = null;
+/** SHA-256 of the buffer the last bake accepted as its source. Null when that bake would have downloaded. */
+let boundBakeSourceSha: string | null = null;
+
+export function takeBoundBakeSourceShaForTests(): string | null {
+  return boundBakeSourceSha;
+}
 
 export function setMaskBakeTimingsForTests(next: { fetchMs: number; deadlineMs: number } | null): void {
   bakeTimings = next ?? { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
@@ -136,6 +143,7 @@ export function resetMaskBakeForTests(): void {
   coverageRefusals.clear();
   ocrSkipUntil.clear();
   pathLoaderOverride = null;
+  boundBakeSourceSha = null;
   bakeTimings = { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
   resetOcrRuntimeForTests();
 }
@@ -166,6 +174,7 @@ async function ensureDirectory(): Promise<void> {
 }
 
 import { applyMaskSourceOverride } from "./maskSourceOverrides";
+import { readBoundSourceState } from "../services/baseballExpansion/discoveryCohort";
 
 export async function downloadMaskSource(url: string, cardId: string): Promise<Buffer | null> {
   const started = Date.now();
@@ -490,10 +499,12 @@ export async function getMaskedImagePath(
   }
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
   if (isMaskBandExcluded(cardId)) return null;
+  const boundState = await readBoundSourceState(cardId);
+  if (boundState.kind === "refused") return null;
 
   await discardStaleHoopsBottomBake(cardId);
 
-  if (!opts?.ignoreCache) {
+  if (!opts?.ignoreCache && boundState.kind !== "bound") {
     const warm = peekWarmMaskedFilename(cardId);
     if (warm && await acceptWarmMaskedFile(cardId, warm)) {
       return warm;
@@ -503,7 +514,7 @@ export async function getMaskedImagePath(
   const priority = opts?.priority ?? "live";
   if (priority === "live") liveMaskRequests++;
   try {
-    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority, opts?.ignoreCache === true), {
+    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority, opts?.ignoreCache === true || boundState.kind === "bound"), {
       promote: priority === "live",
     });
   } finally {
@@ -618,13 +629,16 @@ async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "
     }
   }
 
+  const bound = await readBoundSourceState(cardId);
+  if (bound.kind === "refused") return null;
   return bakeMaskedCardFromUrl({
     cardId,
-    imageUrl,
+    imageUrl: imageUrl || "bound://stored",
     playerName: playerName || "",
     setHint,
     gameSetId,
     imageRotation,
+    ...(bound.kind === "bound" ? { sourceBuffer: bound.bytes } : {}),
   }, priority);
 }
 
@@ -633,6 +647,9 @@ export async function bakeMaskedCardFromUrl(
   priority: "live" | "warm" = "live",
 ): Promise<string | null> {
   const { cardId, imageUrl } = input;
+  boundBakeSourceSha = input.sourceBuffer
+    ? createHash("sha256").update(input.sourceBuffer).digest("hex")
+    : null;
   if (input.gameSetId && isMissingExpansionId(input.gameSetId)) {
     const profile = getMaskProfile(input.setHint, input.gameSetId);
     if (!profileIsRegistered(profile, input.gameSetId)) {
