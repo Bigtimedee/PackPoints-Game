@@ -87,14 +87,16 @@ describe("expansion release schema boot", () => {
         `SELECT c.relname FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public'
-           AND c.relname IN ('expansion_release_manifests', 'expansion_release_members', 'uq_expansion_release_active', 'uq_expansion_release_version')`,
+           AND c.relname IN ('expansion_release_manifests', 'expansion_release_members', 'uq_expansion_release_active', 'uq_expansion_release_version', 'expansion_member_reviews', 'uq_expansion_member_review_revision')`,
       );
       const rows = await client.query<{ n: number }>("SELECT count(*)::int AS n FROM expansion_release_manifests WHERE revoked_at IS NULL");
       return { names: tables.rows.map((row) => row.relname).sort(), active: rows.rows[0]?.n ?? -1 };
     });
     expect(released.names).toEqual([
+      "expansion_member_reviews",
       "expansion_release_manifests",
       "expansion_release_members",
+      "uq_expansion_member_review_revision",
       "uq_expansion_release_active",
       "uq_expansion_release_version",
     ]);

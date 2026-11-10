@@ -23,6 +23,7 @@ import { fetchImportImage, isApprovedSupplierImageHost, isPrivateAddress } from 
 import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "../cards/imageQuality";
 
 export { fetchImportImage };
+import { holdReviewUnlocks } from "./memberReview";
 import { expansionTargetById, isMissingExpansionId } from "./registry";
 
 /** Full discovery file for 1991 Upper Deck. The file is not in this repo. Checklist length stays 800. */
@@ -422,7 +423,7 @@ export async function stageExactSource(setId: string, supplierId: string, bytes:
     eq(discoveryCohortMembers.supplierId, supplierId),
   )).limit(1);
   if (!member) return { ok: false, code: "unregistered_source" };
-  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   let width = 0;
   let height = 0;
@@ -479,7 +480,7 @@ export async function importBoundStagedSource(input: {
     eq(discoveryCohortMembers.supplierId, input.supplierId),
   )).limit(1);
   if (!member) return { ok: false, code: "unregistered_source" };
-  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [stage] = await db.select().from(discoverySourceStaging).where(and(
     eq(discoverySourceStaging.setId, input.setId),
     eq(discoverySourceStaging.supplierId, input.supplierId),
@@ -520,12 +521,16 @@ export async function loadExactSourceGate(setId: string): Promise<(supplierId: s
   }
   const members = await db.select().from(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, setId));
   const staging = await db.select().from(discoverySourceStaging).where(eq(discoverySourceStaging.setId, setId));
+  const unlocked = new Set<string>();
+  for (const member of members) {
+    if (await holdReviewUnlocks(member)) unlocked.add(member.memberKey);
+  }
   const bySupplier = new Map(members.map((member) => [member.supplierId, member]));
   const staged = new Map(staging.map((row) => [row.supplierId, row]));
   return (supplierId, cardNumber) => {
     const member = bySupplier.get(supplierId);
     if (!member) return "unregistered_source";
-    if (member.disposition !== "pass-candidate") return "not_importable";
+    if (member.disposition !== "pass-candidate" && !unlocked.has(member.memberKey)) return "not_importable";
     if (cardNumber && member.cardNumber !== cardNumber) return "number_mismatch";
     const stage = staged.get(supplierId);
     if (!stage || !stage.imageBytes) return "source_not_staged";

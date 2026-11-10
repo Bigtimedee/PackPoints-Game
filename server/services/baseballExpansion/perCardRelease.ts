@@ -33,6 +33,7 @@ import {
   RECOGNIZED_GEOMETRY_VERSION,
   UD_1991_DISCOVERY,
 } from "./discoveryCohort";
+import { holdReviewUnlocks } from "./memberReview";
 
 /** Expansion release floor. This does not change the public shelf floor of 5. */
 export const EXPANSION_RELEASE_MIN_ELIGIBLE = 35;
@@ -145,7 +146,7 @@ export async function recordSourceAcceptance(input: {
   const member = await memberByKey(input.memberKey);
   if (!member) return { ok: false, code: "member_mismatch" };
   if (member.setId !== input.setId) return { ok: false, code: "set_mismatch" };
-  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [staged] = await db.select().from(discoverySourceStaging).where(and(
     eq(discoverySourceStaging.setId, input.setId),
     eq(discoverySourceStaging.supplierId, member.supplierId),
@@ -197,7 +198,7 @@ export async function recordOutputApproval(input: {
   const member = await memberByKey(input.memberKey);
   if (!member) return { ok: false, code: "member_mismatch" };
   if (member.setId !== input.setId) return { ok: false, code: "set_mismatch" };
-  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [acceptance] = await db.select().from(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.id, input.acceptanceId)).limit(1);
   if (!acceptance || acceptance.memberKey !== member.memberKey || acceptance.setId !== input.setId || acceptance.sourceSha256 !== member.originalSha256) {
     return { ok: false, code: "source_unaccepted" };
@@ -271,7 +272,7 @@ export async function recordServeClearance(input: {
   const member = await memberByKey(input.memberKey);
   if (!member) return { ok: false, code: "member_mismatch" };
   if (member.setId !== input.setId) return { ok: false, code: "set_mismatch" };
-  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [output] = await db.select().from(expansionOutputApprovals).where(eq(expansionOutputApprovals.id, input.outputApprovalId)).limit(1);
   if (!output || output.memberKey !== member.memberKey || output.setId !== input.setId) return { ok: false, code: "output_unapproved" };
   const native = asBuffer(output.nativeBytes);
@@ -302,9 +303,11 @@ function bindingCode(input: {
   acceptance: typeof expansionSourceAcceptances.$inferSelect | null;
   output: typeof expansionOutputApprovals.$inferSelect | null;
   serve: typeof expansionServeClearances.$inferSelect | null;
+  holdReviewed?: boolean;
 }): ReleaseRefusal | null {
   const { member, playable, provenance, acceptance, output, serve } = input;
-  if (member.disposition !== "pass-candidate") return "not_importable";
+  const open = member.disposition === "pass-candidate" || (member.disposition === "hold" && input.holdReviewed === true);
+  if (!open) return "not_importable";
   if (!playable || playable.gameSetId !== member.setId || playable.isPlayable !== true || !playable.imageUrl?.startsWith("https://")) return "card_unbound";
   if (!provenance || provenance.playableCardId !== playable.id || provenance.sha256 !== member.originalSha256 || provenance.memberKey !== member.memberKey) return "card_unbound";
   if (!acceptance || acceptance.sourceSha256 !== member.originalSha256 || acceptance.memberKey !== member.memberKey) return "source_unaccepted";
@@ -350,7 +353,8 @@ async function boundRows(setId: string) {
 export async function countExpansionGameplayEligible(setId: string): Promise<number> {
   if (scope(setId) !== "expansion") return 0;
   const rows = await boundRows(setId);
-  return rows.filter((row) => bindingCode(row) == null).length;
+  const codes = await Promise.all(rows.map(async (row) => bindingCode({ ...row, holdReviewed: await holdReviewUnlocks(row.member) })));
+  return codes.filter((code) => code == null).length;
 }
 
 /**
@@ -393,7 +397,7 @@ export async function inspectBoundServe(cardId: string): Promise<{ kind: "bound_
   const [acceptance] = await db.select().from(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.memberKey, member.memberKey)).limit(1);
   const [output] = await db.select().from(expansionOutputApprovals).where(eq(expansionOutputApprovals.memberKey, member.memberKey)).limit(1);
   const [serve] = await db.select().from(expansionServeClearances).where(eq(expansionServeClearances.memberKey, member.memberKey)).limit(1);
-  const code = bindingCode({ member, playable: card, provenance, acceptance: acceptance ?? null, output: output ?? null, serve: serve ?? null });
+  const code = bindingCode({ member, playable: card, provenance, acceptance: acceptance ?? null, output: output ?? null, serve: serve ?? null, holdReviewed: await holdReviewUnlocks(member) });
   if (code) return { kind: "refused", code };
   return { kind: "bound_held", bytes: asBuffer(output!.nativeBytes)! };
 }
@@ -606,7 +610,7 @@ export async function recordExpansionRelease(input: {
       await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: "member_mismatch", evidenceRef: proof, attemptedBy: who });
       return { ok: false, code: "member_mismatch", eligibleCount: unique.length, discoveryCount };
     }
-    const code = bindingCode(row);
+    const code = bindingCode({ ...row, holdReviewed: await holdReviewUnlocks(row.member) });
     if (code || !row.output) {
       const refusal = code ?? "output_unapproved";
       await writeClearanceAttempt({ setId: input.setId, eligibleCount: unique.length, discoveryCount, code: refusal, evidenceRef: proof, attemptedBy: who });
@@ -796,7 +800,7 @@ export async function replaceExpansionRelease(input: {
     for (const key of unique) {
       const row = byKey.get(key);
       if (!row) return { ok: false, code: "member_mismatch", eligibleCount: unique.length, discoveryCount };
-      const code = bindingCode(row);
+      const code = bindingCode({ ...row, holdReviewed: await holdReviewUnlocks(row.member) });
       if (code || !row.output) return { ok: false, code: code ?? "output_unapproved", eligibleCount: unique.length, discoveryCount };
       const [proposal] = await tx.select({ memberKey: geometryProposals.memberKey, polygonPixels: geometryProposals.polygonPixels }).from(geometryProposals).where(eq(geometryProposals.id, row.output.proposalId)).limit(1);
       if (!proposal || proposal.memberKey !== row.member.memberKey || canonicalPolygon(proposal.polygonPixels ?? []) !== row.output.polygonCanonical) {
