@@ -5,6 +5,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { discoveryCohortMembers, expansionMemberReviews } from "@shared/schema";
 import { db } from "../../db";
+import { isProtectedLogoMember, PROTECTED_LOGO_CODE } from "./protectedIdentity";
 import { isMissingExpansionId } from "./registry";
 
 const UD_1991_SET_ID = "cd597562-5b8f-5517-aca0-38b04f443747";
@@ -16,7 +17,8 @@ export type MemberReviewRefusal =
   | "not_importable"
   | "member_mismatch"
   | "source_drift"
-  | "review_conflict";
+  | "review_conflict"
+  | typeof PROTECTED_LOGO_CODE;
 
 type MemberIdentity = {
   memberKey: string;
@@ -89,6 +91,7 @@ function matchesMember(row: {
 
 /** True only when the latest review attests this exact held original. */
 export async function holdReviewUnlocks(member: MemberIdentity): Promise<boolean> {
+  if (isProtectedLogoMember(member)) return false;
   if (member.disposition !== "hold") return false;
   const [latest] = await db.select().from(expansionMemberReviews).where(eq(expansionMemberReviews.memberKey, member.memberKey)).orderBy(desc(expansionMemberReviews.revision)).limit(1);
   return !!latest && matchesMember(latest, member);
@@ -122,6 +125,7 @@ export async function recordMemberReview(input: {
       eq(discoveryCohortMembers.setId, input.setId),
     )).limit(1);
     if (!member) return { ok: false, code: "member_mismatch" };
+    if (isProtectedLogoMember(member)) return { ok: false, code: PROTECTED_LOGO_CODE };
     if (member.disposition !== "hold") return { ok: false, code: "not_importable" };
     if (member.supplierId !== input.supplierId || member.originalSha256 !== input.sourceSha256 || member.originalWidth !== input.width || member.originalHeight !== input.height || member.originalBytes !== input.originalBytes) {
       return { ok: false, code: "source_drift" };

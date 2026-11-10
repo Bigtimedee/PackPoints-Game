@@ -34,6 +34,7 @@ import {
   UD_1991_DISCOVERY,
 } from "./discoveryCohort";
 import { holdReviewUnlocks } from "./memberReview";
+import { isProtectedLogoMember, PROTECTED_LOGO_CODE } from "./protectedIdentity";
 
 /** Expansion release floor. This does not change the public shelf floor of 5. */
 export const EXPANSION_RELEASE_MIN_ELIGIBLE = 35;
@@ -87,7 +88,8 @@ export type ReleaseRefusal =
   | "release_manifest_mismatch"
   | "release_member_removed"
   | "not_released"
-  | "release_revoked";
+  | "release_revoked"
+  | typeof PROTECTED_LOGO_CODE;
 
 type Recorded = { ok: true; id: string; unchanged: boolean };
 type Refused = { ok: false; code: ReleaseRefusal };
@@ -146,6 +148,7 @@ export async function recordSourceAcceptance(input: {
   const member = await memberByKey(input.memberKey);
   if (!member) return { ok: false, code: "member_mismatch" };
   if (member.setId !== input.setId) return { ok: false, code: "set_mismatch" };
+  if (isProtectedLogoMember(member)) return { ok: false, code: PROTECTED_LOGO_CODE };
   if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [staged] = await db.select().from(discoverySourceStaging).where(and(
     eq(discoverySourceStaging.setId, input.setId),
@@ -198,6 +201,7 @@ export async function recordOutputApproval(input: {
   const member = await memberByKey(input.memberKey);
   if (!member) return { ok: false, code: "member_mismatch" };
   if (member.setId !== input.setId) return { ok: false, code: "set_mismatch" };
+  if (isProtectedLogoMember(member)) return { ok: false, code: PROTECTED_LOGO_CODE };
   if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [acceptance] = await db.select().from(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.id, input.acceptanceId)).limit(1);
   if (!acceptance || acceptance.memberKey !== member.memberKey || acceptance.setId !== input.setId || acceptance.sourceSha256 !== member.originalSha256) {
@@ -272,6 +276,7 @@ export async function recordServeClearance(input: {
   const member = await memberByKey(input.memberKey);
   if (!member) return { ok: false, code: "member_mismatch" };
   if (member.setId !== input.setId) return { ok: false, code: "set_mismatch" };
+  if (isProtectedLogoMember(member)) return { ok: false, code: PROTECTED_LOGO_CODE };
   if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [output] = await db.select().from(expansionOutputApprovals).where(eq(expansionOutputApprovals.id, input.outputApprovalId)).limit(1);
   if (!output || output.memberKey !== member.memberKey || output.setId !== input.setId) return { ok: false, code: "output_unapproved" };
@@ -306,6 +311,7 @@ function bindingCode(input: {
   holdReviewed?: boolean;
 }): ReleaseRefusal | null {
   const { member, playable, provenance, acceptance, output, serve } = input;
+  if (isProtectedLogoMember(member)) return PROTECTED_LOGO_CODE;
   const open = member.disposition === "pass-candidate" || (member.disposition === "hold" && input.holdReviewed === true);
   if (!open) return "not_importable";
   if (!playable || playable.gameSetId !== member.setId || playable.isPlayable !== true || !playable.imageUrl?.startsWith("https://")) return "card_unbound";
@@ -429,6 +435,7 @@ const EXPANSION_SERVE_REFUSALS = new Set<string>([
   "output_conflict",
   "serve_conflict",
   "source_drift",
+  PROTECTED_LOGO_CODE,
 ]);
 
 export function isExpansionServeRefusal(code: string | null | undefined): boolean {
