@@ -18,9 +18,27 @@ export const APPROVED_SUPPLIER_IMAGE_HOSTS = [
   "ebayimg.com",
 ] as const;
 
+/**
+ * One approved project host. Equality only: another Supabase project, and a
+ * subdomain of this project, are not this host. The import downloader does
+ * not use this list.
+ */
+export const EXACT_SUPPLIER_POINTER_HOSTS = [
+  "nkzgyskcdwthqgdvrnak.supabase.co",
+] as const;
+
+export function normalizeSupplierHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.+$/, "");
+}
+
 export function isApprovedSupplierImageHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.+$/, "");
+  const host = normalizeSupplierHost(hostname);
   return APPROVED_SUPPLIER_IMAGE_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+}
+
+export function isExactSupplierPointerHost(hostname: string): boolean {
+  const host = normalizeSupplierHost(hostname);
+  return EXACT_SUPPLIER_POINTER_HOSTS.some((allowed) => host === allowed);
 }
 
 function ipv4Private(address: string): boolean {

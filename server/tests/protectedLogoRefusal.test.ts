@@ -223,6 +223,12 @@ describe("protected logo identity refusal", () => {
         supplierId: control.supplierId, imageUrl: "https://cdn.bubble.io/logo-control.jpg", player: "Synthetic Player",
       })).status).toBe(200);
 
+      const stoppedHost = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/import-staged`, {
+        supplierId: PROTECTED_LOGO_MEMBER.supplierId,
+        imageUrl: "https://nkzgyskcdwthqgdvrnak.supabase.co/candidate-0044",
+        player: "Synthetic Player",
+      });
+      expect(stoppedHost.body.code).toBe("protected_logo_under_paint");
       const stoppedStage = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/stage`, {
         supplierId: PROTECTED_LOGO_MEMBER.supplierId, imageBase64: controlJpeg.toString("base64"),
       });
