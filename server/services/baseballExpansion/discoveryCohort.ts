@@ -23,6 +23,8 @@ import { fetchImportImage, isApprovedSupplierImageHost, isPrivateAddress } from 
 import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "../cards/imageQuality";
 
 export { fetchImportImage };
+import { holdReviewUnlocks } from "./memberReview";
+import { isProtectedLogoMember, PROTECTED_LOGO_CODE } from "./protectedIdentity";
 import { expansionTargetById, isMissingExpansionId } from "./registry";
 
 /** Full discovery file for 1991 Upper Deck. The file is not in this repo. Checklist length stays 800. */
@@ -415,14 +417,15 @@ export async function recordDiscoveryAddition(input: {
 }
 
 export async function stageExactSource(setId: string, supplierId: string, bytes: Buffer): Promise<
-  { ok: true; sha256: string; importable: false } | { ok: false; code: "unregistered_source" | "source_drift" | "not_importable" }
+  { ok: true; sha256: string; importable: false } | { ok: false; code: "unregistered_source" | "source_drift" | "not_importable" | typeof PROTECTED_LOGO_CODE }
 > {
   const [member] = await db.select().from(discoveryCohortMembers).where(and(
     eq(discoveryCohortMembers.setId, setId),
     eq(discoveryCohortMembers.supplierId, supplierId),
   )).limit(1);
   if (!member) return { ok: false, code: "unregistered_source" };
-  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  if (isProtectedLogoMember(member)) return { ok: false, code: PROTECTED_LOGO_CODE };
+  if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   let width = 0;
   let height = 0;
@@ -479,7 +482,8 @@ export async function importBoundStagedSource(input: {
     eq(discoveryCohortMembers.supplierId, input.supplierId),
   )).limit(1);
   if (!member) return { ok: false, code: "unregistered_source" };
-  if (member.disposition !== "pass-candidate") return { ok: false, code: "not_importable" };
+  if (isProtectedLogoMember(member)) return { ok: false, code: PROTECTED_LOGO_CODE };
+  if (member.disposition !== "pass-candidate" && !await holdReviewUnlocks(member)) return { ok: false, code: "not_importable" };
   const [stage] = await db.select().from(discoverySourceStaging).where(and(
     eq(discoverySourceStaging.setId, input.setId),
     eq(discoverySourceStaging.supplierId, input.supplierId),
@@ -520,12 +524,17 @@ export async function loadExactSourceGate(setId: string): Promise<(supplierId: s
   }
   const members = await db.select().from(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, setId));
   const staging = await db.select().from(discoverySourceStaging).where(eq(discoverySourceStaging.setId, setId));
+  const unlocked = new Set<string>();
+  for (const member of members) {
+    if (await holdReviewUnlocks(member)) unlocked.add(member.memberKey);
+  }
   const bySupplier = new Map(members.map((member) => [member.supplierId, member]));
   const staged = new Map(staging.map((row) => [row.supplierId, row]));
   return (supplierId, cardNumber) => {
     const member = bySupplier.get(supplierId);
     if (!member) return "unregistered_source";
-    if (member.disposition !== "pass-candidate") return "not_importable";
+    if (isProtectedLogoMember(member)) return PROTECTED_LOGO_CODE;
+    if (member.disposition !== "pass-candidate" && !unlocked.has(member.memberKey)) return "not_importable";
     if (cardNumber && member.cardNumber !== cardNumber) return "number_mismatch";
     const stage = staged.get(supplierId);
     if (!stage || !stage.imageBytes) return "source_not_staged";
@@ -538,11 +547,11 @@ export async function loadExactSourceGate(setId: string): Promise<(supplierId: s
 
 /** Download the current supplier bytes and require them to equal the staged image. A revision row does not authorize this. */
 export async function verifyImportBytes(setId: string, supplierId: string, cardNumber: string | null, downloaded: Buffer | null): Promise<
-  { ok: true; memberKey: string; sha256: string } | { ok: false; code: "exact_source_required" | "unregistered_source" | "not_importable" | "number_mismatch" | "source_not_staged" | "source_drift" }
+  { ok: true; memberKey: string; sha256: string } | { ok: false; code: "exact_source_required" | "unregistered_source" | "not_importable" | "number_mismatch" | "source_not_staged" | "source_drift" | typeof PROTECTED_LOGO_CODE }
 > {
   const gate = await loadExactSourceGate(setId);
   const reason = gate(supplierId, cardNumber);
-  if (reason) return { ok: false, code: reason as "exact_source_required" | "unregistered_source" | "not_importable" | "number_mismatch" | "source_not_staged" | "source_drift" };
+  if (reason) return { ok: false, code: reason as "exact_source_required" | "unregistered_source" | "not_importable" | "number_mismatch" | "source_not_staged" | "source_drift" | typeof PROTECTED_LOGO_CODE };
   const [stage] = await db.select().from(discoverySourceStaging).where(and(
     eq(discoverySourceStaging.setId, setId),
     eq(discoverySourceStaging.supplierId, supplierId),
@@ -581,6 +590,8 @@ export async function readBoundSourceState(cardId: string): Promise<BoundSourceS
   if (!cohort) return { kind: "legacy" };
   const [prov] = await db.select().from(discoveryImportProvenance).where(eq(discoveryImportProvenance.playableCardId, cardId)).limit(1);
   if (!prov || prov.supplierId !== card.cardhedgeCardId) return { kind: "refused" };
+  const [member] = await db.select().from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, prov.memberKey)).limit(1);
+  if (member && isProtectedLogoMember(member)) return { kind: "refused" };
   const [stage] = await db.select().from(discoverySourceStaging).where(and(
     eq(discoverySourceStaging.setId, prov.setId),
     eq(discoverySourceStaging.supplierId, prov.supplierId),

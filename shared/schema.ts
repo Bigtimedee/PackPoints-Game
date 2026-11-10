@@ -5318,6 +5318,30 @@ export const discoveryCohortMembers = pgTable("discovery_cohort_members", {
   check("discovery_member_disposition", sql`${table.disposition} IN ('pass-candidate', 'hold', 'drop')`),
 ]);
 
+/**
+ * Append-only later review of one original hold. It does not change the
+ * cohort row, the membership hash, or any release manifest.
+ */
+export const expansionMemberReviews = pgTable("expansion_member_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  revision: integer("revision").notNull(),
+  supplierId: text("supplier_id").notNull(),
+  sourceSha256: varchar("source_sha256", { length: 64 }).notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  originalBytes: integer("original_bytes").notNull(),
+  attestedDisposition: text("attested_disposition").notNull(),
+  evidenceRef: text("evidence_ref").notNull(),
+  reviewedBy: text("reviewed_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_expansion_member_review_revision").on(table.memberKey, table.revision),
+  check("expansion_member_review_disposition", sql`${table.attestedDisposition} = 'pass-candidate'`),
+  check("expansion_member_review_revision_pos", sql`${table.revision} >= 1`),
+]);
+
 export const discoverySourceRevisions = pgTable("discovery_source_revisions", {
   id: uuid("id").primaryKey().defaultRandom(),
   memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),

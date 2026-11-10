@@ -17,6 +17,7 @@ import {
   importBoundStagedSource,
   listGeometryProposals,
 } from "../services/baseballExpansion/discoveryCohort";
+import { recordMemberReview } from "../services/baseballExpansion/memberReview";
 import {
   recordExpansionRelease,
   recordOutputApproval,
@@ -166,6 +167,32 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
       category,
     }).then((result) => send(res, result.ok ? 200 : 409, { ...result, fetched: false, releaseAuthorized: false }))
       .catch(() => { if (!res.headersSent) send(res, 500, { error: "import failed" }); });
+  });
+
+  app.post("/api/qa/baseball-expansion/:setId/discovery-cohort/member-review", (req, res) => {
+    if (!gate(req, res)) return;
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    if (!noUrl(body)) return send(res, 400, { error: "source URLs are not accepted" });
+    if (typeof body.memberKey !== "string" || typeof body.supplierId !== "string" || typeof body.sourceSha256 !== "string" || typeof body.evidenceRef !== "string" || typeof body.reviewedBy !== "string" || typeof body.width !== "number" || typeof body.height !== "number" || typeof body.originalBytes !== "number" || typeof body.expectedRevision !== "number") {
+      return send(res, 400, { error: "review needs the original member and evidence" });
+    }
+    void recordMemberReview({
+      setId: req.params.setId,
+      memberKey: body.memberKey,
+      supplierId: body.supplierId,
+      sourceSha256: body.sourceSha256,
+      width: body.width,
+      height: body.height,
+      originalBytes: body.originalBytes,
+      evidenceRef: body.evidenceRef,
+      reviewedBy: body.reviewedBy,
+      expectedRevision: body.expectedRevision,
+    }).then((result) => send(res, result.ok ? 200 : 409, {
+      ...result,
+      releaseAuthorized: false,
+      profileApproved: false,
+      serveCleared: false,
+    })).catch(() => { if (!res.headersSent) send(res, 500, { error: "review failed" }); });
   });
 
   app.get("/api/qa/baseball-expansion/:setId/geometry-proposals", (req, res) => {
