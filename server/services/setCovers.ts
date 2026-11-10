@@ -684,6 +684,12 @@ export function clearSetCoverCaches(): void {
   coverBytes.clear();
 }
 
+/** Drop one set's cached cover ids. Byte caches stay; the next request re-reads eligibility. */
+export function invalidateReleasedCoverCache(setId: string): void {
+  coverIdsCache.delete(setId);
+  lastGoodCovers.delete(setId);
+}
+
 /** Boot + periodic warm: resolve every public set's covers in one batch and preload bytes. */
 export async function warmSetCoverCache(): Promise<{ sets: number; files: number }> {
   const rows = await db
