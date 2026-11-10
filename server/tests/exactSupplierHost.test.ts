@@ -1,8 +1,9 @@
 /**
  * The approved Supabase project host can be stored as a pointer.
  * The import does not download it, and another project host stays closed.
- * The cumulative267 object keys are not in this checkout, so the paths below
- * are host fixtures, not reconstructed card objects.
+ * The cumulative object keys are not in this checkout, so the paths below
+ * are host fixtures, not reconstructed card objects. Fleer 89 ordinals 31
+ * and 72 and Donruss 89 ordinals 112, 133, 177, and 322 use this same host.
  */
 import { createHash } from "crypto";
 import express from "express";
@@ -41,6 +42,7 @@ const { rejectPublicMask } = await import("../services/publicMaskGate");
 const { sendMaskedCard } = await import("../services/playImageSend");
 
 const FLEER = "855e8125-4169-5d0b-b04c-3513feae9637";
+const DONRUSS = "d6997c20-0880-5119-80d2-9ce8c9b4727e";
 const HOST = "nkzgyskcdwthqgdvrnak.supabase.co";
 const TOKEN = "proposal-preview-token";
 const GWYNN = {
@@ -61,6 +63,12 @@ const VIOLA = {
   height: 1050,
   bytes: 294891,
 };
+const DONRUSS_HELD = [
+  { ordinal: 112, cardNumber: "146", supplierId: "1708002724945x674603884784648200", sha256: "e2bb2d5bb81613b45f206626bb8c4c53e93a843f6eba904ff1fa31a3e2c71c46", bytes: 278477 },
+  { ordinal: 133, cardNumber: "175", supplierId: "1708092809633x867875303487176700", sha256: "d65cf66184e66dba36f7a5e2b0fdac3e866c02e0f6f1ab8e5afc3449c1bec290", bytes: 303671 },
+  { ordinal: 177, cardNumber: "256", supplierId: "1668124379969x365666482466062340", sha256: "256a76a2bd0d4b385dcf8014711c6ff1a372bbc16cf0e07b942598d7bb47ac39", bytes: 241630 },
+  { ordinal: 322, cardNumber: "575", supplierId: "1708440189448x617070218589765600", sha256: "a7cef7db3840b0e39010cf8518b34a6c177b13421a7df1417be45c43ff3d86b5", bytes: 248904 },
+];
 
 function pointer(label: string): string {
   return `https://${HOST}/${label}`;
@@ -90,6 +98,7 @@ describe("exact supplier pointer host", () => {
     if (previous === undefined) delete process.env.COVER_QA_TOKEN;
     else process.env.COVER_QA_TOKEN = previous;
     await reset(FLEER);
+    await reset(DONRUSS);
   });
 
   it("stores only the exact project host and still refuses every other gate", async () => {
@@ -117,9 +126,14 @@ describe("exact supplier pointer host", () => {
 
     process.env.COVER_QA_TOKEN = TOKEN;
     await reset(FLEER);
+    await reset(DONRUSS);
     await insertIntegratedGameSet({
       id: FLEER, sport: "baseball", brand: "Fleer", year: 1989, setName: "1989 Fleer Baseball",
       isActive: true, cardhedgeSetQuery: "1989 Fleer Baseball", cardhedgeCategory: "Baseball",
+    });
+    await insertIntegratedGameSet({
+      id: DONRUSS, sport: "baseball", brand: "Donruss", year: 1989, setName: "1989 Donruss Baseball",
+      isActive: true, cardhedgeSetQuery: "1989 Donruss Baseball", cardhedgeCategory: "Baseball",
     });
     const jpeg = await sharp({ create: { width: 40, height: 60, channels: 3, background: { r: 8, g: 8, b: 8 } } }).jpeg().toBuffer();
     const matchSha = createHash("sha256").update(jpeg).digest("hex");
@@ -135,23 +149,26 @@ describe("exact supplier pointer host", () => {
       disposition: "pass-candidate" as const,
       routing: "ordinary-canonical-candidate",
     };
-    const frozen = [GWYNN, VIOLA].map((card) => ({
+    const frozenMember = (card: { ordinal: number; cardNumber: string; supplierId: string; sha256: string; bytes: number }, width = 700, height = 1050) => ({
       memberKey: `candidate-${String(card.ordinal).padStart(4, "0")}|${card.sha256}`,
       ordinal: card.ordinal,
       cardNumber: card.cardNumber,
       supplierId: card.supplierId,
       originalSha256: card.sha256,
-      originalWidth: card.width,
-      originalHeight: card.height,
+      originalWidth: width,
+      originalHeight: height,
       originalBytes: card.bytes,
       disposition: "pass-candidate" as const,
       routing: "ordinary-canonical-candidate",
-    }));
+    });
+    const frozen = [GWYNN, VIOLA].map((card) => frozenMember(card));
+    const donruss = DONRUSS_HELD.map((card) => frozenMember(card));
     expect((await createDiscoveryCohort({ setId: FLEER, artifactSha256: "ab".repeat(32), members: [match, ...frozen] })).ok).toBe(true);
+    expect((await createDiscoveryCohort({ setId: DONRUSS, artifactSha256: "cd".repeat(32), members: donruss })).ok).toBe(true);
     expect((await stageExactSource(FLEER, match.supplierId, jpeg)).ok).toBe(true);
-    for (const card of [GWYNN, VIOLA]) {
+    for (const card of [...frozen.map((card) => ({ ...card, setId: FLEER })), ...donruss.map((card) => ({ ...card, setId: DONRUSS }))]) {
       await db.insert(discoverySourceStaging).values({
-        setId: FLEER, supplierId: card.supplierId, sha256: matchSha, width: 40, height: 60, bytes: jpeg.length, imageBytes: jpeg,
+        setId: card.setId, supplierId: card.supplierId, sha256: matchSha, width: 40, height: 60, bytes: jpeg.length, imageBytes: jpeg,
       });
     }
     const savedFetch = global.fetch;
@@ -184,21 +201,26 @@ describe("exact supplier pointer host", () => {
       expect(card?.imageUrl).toBe(stored);
       const mask = await fetch(`${base}/api/cards/${body.id}/masked-image`, { headers: { "if-none-match": "\"warm\"" } });
       expect(mask.status).toBe(404);
-      for (const card of [GWYNN, VIOLA]) {
+      for (const card of [
+        ...frozen.map((row) => ({ ...row, setId: FLEER })),
+        ...donruss.map((row) => ({ ...row, setId: DONRUSS })),
+      ]) {
         const drifted = await importBoundStagedSource({
-          setId: FLEER,
+          setId: card.setId,
           supplierId: card.supplierId,
-          imageUrl: pointer(`candidate-${String(card.ordinal).padStart(4, "0")}`),
+          imageUrl: pointer(card.memberKey.split("|")[0]!),
           player: "Synthetic Player",
         });
         expect(drifted).toMatchObject({ ok: false, code: "source_drift" });
+        expect(await db.select({ id: discoveryCohortMembers.playableCardId }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, card.memberKey))).toEqual([{ id: null }]);
       }
-      expect(await db.select({ id: discoveryCohortMembers.playableCardId }).from(discoveryCohortMembers).where(eq(discoveryCohortMembers.memberKey, frozen[0]!.memberKey))).toEqual([{ id: null }]);
-      expect(await db.select({ id: expansionSourceAcceptances.id }).from(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.setId, FLEER))).toEqual([]);
-      expect(await db.select({ id: expansionOutputApprovals.id }).from(expansionOutputApprovals).where(eq(expansionOutputApprovals.setId, FLEER))).toEqual([]);
-      expect(await db.select({ id: expansionServeClearances.id }).from(expansionServeClearances).where(eq(expansionServeClearances.setId, FLEER))).toEqual([]);
-      expect(await db.select({ id: expansionReleaseManifests.id }).from(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, FLEER))).toEqual([]);
-      expect(await db.select({ id: geometryProposals.id }).from(geometryProposals).where(eq(geometryProposals.setId, FLEER))).toEqual([]);
+      for (const setId of [FLEER, DONRUSS]) {
+        expect(await db.select({ id: expansionSourceAcceptances.id }).from(expansionSourceAcceptances).where(eq(expansionSourceAcceptances.setId, setId))).toEqual([]);
+        expect(await db.select({ id: expansionOutputApprovals.id }).from(expansionOutputApprovals).where(eq(expansionOutputApprovals.setId, setId))).toEqual([]);
+        expect(await db.select({ id: expansionServeClearances.id }).from(expansionServeClearances).where(eq(expansionServeClearances.setId, setId))).toEqual([]);
+        expect(await db.select({ id: expansionReleaseManifests.id }).from(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, setId))).toEqual([]);
+        expect(await db.select({ id: geometryProposals.id }).from(geometryProposals).where(eq(geometryProposals.setId, setId))).toEqual([]);
+      }
       expect(await importBoundStagedSource({
         setId: UD_1991_DISCOVERY.setId,
         supplierId: "ud-supplier",
