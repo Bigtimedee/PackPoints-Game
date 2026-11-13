@@ -92,7 +92,7 @@ export function StreakCard() {
           <div className="text-right">
             <div className="flex items-center gap-1 text-muted-foreground text-xs">
               <Trophy className="h-3 w-3" />
-              <span>Best: {streak.longestDays}</span>
+              <span>Record: {streak.longestDays}</span>
             </div>
           </div>
         </div>

@@ -81,7 +81,7 @@ function BundleCard({
           data-testid="badge-best-value"
         >
           <Sparkles className="h-3 w-3" />
-          Best Value
+          Top pick
         </Badge>
       )}
       <div className="aspect-[4/3] rounded-t-md overflow-hidden relative">
@@ -169,7 +169,7 @@ function SubscriptionCard({
           data-testid="badge-best-value-subscription"
         >
           <Sparkles className="h-3 w-3" />
-          Best Value
+          Top pick
         </Badge>
       )}
       <div className="aspect-[4/3] rounded-t-md overflow-hidden relative">
@@ -470,7 +470,7 @@ export default function Store() {
                 <div>
                   <h4 className="font-medium">Browse Live Listings</h4>
                   <p className="text-sm text-muted-foreground">
-                    Browse live eBay listings from Marketplace. PackPTS you apply stay in your wallet and do not change the price those sites charge.
+                    Browse live eBay listings from Marketplace. PackPTS you apply stay in your wallet and do not change what those sites charge.
                   </p>
                 </div>
               </div>
@@ -493,7 +493,7 @@ export default function Store() {
                 <div className="flex-1 text-center md:text-left">
                   <h3 className="font-semibold text-lg mb-1">Browse Live Listings</h3>
                   <p className="text-sm text-muted-foreground">
-                    Search real-time eBay listings. PackPTS earns a commission on eBay purchases through our links. Applied PackPTS do not change the eBay price.
+                    Search real-time eBay listings. PackPTS earns a commission on eBay purchases through our links. Applied PackPTS do not change what eBay charges.
                   </p>
                 </div>
                 <Link href="/marketplace">

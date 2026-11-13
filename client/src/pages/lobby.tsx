@@ -291,7 +291,7 @@ export default function Lobby() {
     if (!lobby) return;
     
     const shareData = {
-      title: "PackPTS 1v1 Battle",
+      title: "PackPTS 1v1 Match",
       text: `Join my PackPTS game! Use code: ${lobby.joinCode}`,
       url: `${window.location.origin}/lobby/join?code=${lobby.joinCode}`,
     };
@@ -575,8 +575,8 @@ export default function Lobby() {
         
         <div className="space-y-6">
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold" data-testid="text-lobby-title">1v1 Battle</h1>
-            <p className="text-muted-foreground">Challenge a friend to see who knows their cards best</p>
+            <h1 className="text-3xl font-bold" data-testid="text-lobby-title">1v1 Match</h1>
+            <p className="text-muted-foreground">Challenge a friend to see who knows the most cards</p>
           </div>
           
           {action === "create" || !action ? (

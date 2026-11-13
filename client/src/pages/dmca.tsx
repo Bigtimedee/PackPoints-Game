@@ -29,7 +29,7 @@ export default function DmcaPage() {
             <ul className="list-disc pl-5 space-y-2 mt-2">
               <li>Your name, address, phone number and email.</li>
               <li>The work or right you believe is infringed (copyright, trademark, or name and likeness).</li>
-              <li>The PackPTS page or card you want removed. A link or the set name and card number is best.</li>
+              <li>The PackPTS page or card you want removed. A link or the set name and card number is enough.</li>
               <li>A statement that you have a good faith belief the use is not authorized by the owner, its agent or the law.</li>
               <li>A statement, under penalty of perjury, that the information in your notice is accurate and that you are the owner or authorized to act for the owner.</li>
               <li>Your physical or electronic signature.</li>

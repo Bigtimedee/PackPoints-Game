@@ -14,7 +14,7 @@ const MARKETPLACE_PARTNERS = [
   {
     name: "eBay",
     logo: "eBay",
-    description: "Browse live eBay sports-card listings from PackPTS. Outbound clicks are affiliate (EPN) links. Applying PackPTS does not change the eBay checkout price.",
+    description: "Browse live eBay sports-card listings from PackPTS. Outbound clicks are affiliate (EPN) links. Applying PackPTS does not change what eBay charges at checkout.",
     features: ["Live sports-card listing search", "Affiliate (EPN) outbound links", "Buyer protection stays on eBay"],
     active: true,
   },
@@ -64,7 +64,7 @@ export default function Partners() {
           <Badge variant="secondary" className="mb-4">Marketplace</Badge>
           <h1 className="text-4xl font-bold mb-4">Browse Real Cards from PackPTS</h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Browse live eBay listings from PackPTS. PackPTS you apply are reserved in your wallet and do not change the price those marketplaces charge.
+            Browse live eBay listings from PackPTS. PackPTS you apply are reserved in your wallet and do not change what those marketplaces charge.
           </p>
         </div>
 

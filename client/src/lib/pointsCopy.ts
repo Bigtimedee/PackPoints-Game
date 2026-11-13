@@ -62,8 +62,8 @@ export function pageSteps(live: boolean, holdDays?: number, payoutMin?: string) 
   return [
     { title: "Play and earn", body: "Name the player on each card. Correct answers earn points into your wallet." },
     live
-      ? { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." }
-      : { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." },
+      ? { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal cost." }
+      : { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal cost." },
     live
       ? { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. ${REBATE_SPLIT} It's held ${days} days, then you can cash out from ${min}.` }
       : { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. ${REBATE_SPLIT} It's held ${days} days, then you can cash out from ${min}.` },

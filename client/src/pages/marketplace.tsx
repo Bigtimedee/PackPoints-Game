@@ -345,8 +345,8 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
     }
     if (!listing.priceCents) {
       toast({
-        title: "Price Required",
-        description: "Cannot apply PackPTS to listings without a price",
+        title: "Amount required",
+        description: "Cannot apply PackPTS to listings without an amount",
         variant: "destructive",
       });
       return;
@@ -412,7 +412,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                 
                 {isAuthenticated && canApplyPackPTS && (
                   <p className="text-xs text-muted-foreground">
-                    Does not change the {platformName} price
+                    Does not change what {platformName} charges
                   </p>
                 )}
                 
@@ -433,7 +433,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                 )}
               </>
             ) : (
-              <span className="text-sm text-muted-foreground">Price TBD</span>
+              <span className="text-sm text-muted-foreground">Amount TBD</span>
             )}
             
             {timeRemaining && !isEndingSoon && (
@@ -518,14 +518,14 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           <DialogHeader>
             <DialogTitle>Reserve PackPTS for cashback</DialogTitle>
             <DialogDescription>
-              {platformName} checkout stays full price. After you buy via our tracked link, you earn real cashback, up to the amount shown below. PackPTS earns a commission on eBay purchases through our links.
+              {platformName} checkout stays the full amount. After you buy via our tracked link, you earn real cashback, up to the amount shown below. PackPTS earns a commission on eBay purchases through our links.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div className="text-sm text-muted-foreground">
               <p className="font-medium text-foreground mb-2">{listing.title}</p>
-              <p>Price: ${((listing.priceCents || 0) / 100).toFixed(2)}</p>
+              <p>Amount: ${((listing.priceCents || 0) / 100).toFixed(2)}</p>
               <p>Your Balance: {userBalance.toLocaleString()} PackPTS</p>
               {quote && <p>Maximum Redeemable: {(quote.marginBackedRmax ?? 0).toLocaleString()} PackPTS</p>}
             </div>
@@ -555,7 +555,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                 About ${creditAmount} back
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Not a coupon on {platformName}. You pay full price there. You earn real cashback on the sale, up to the value of the points you applied.
+                Not a coupon on {platformName}. You pay the full amount there. You earn real cashback on the sale, up to the value of the points you applied.
               </p>
             </div>
             
@@ -597,7 +597,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           <DialogHeader>
             <DialogTitle>Buy on {platformName} to earn cashback</DialogTitle>
             <DialogDescription>
-              {platformName} checkout stays full price. You earn real cashback of about ${(appliedCreditCents / 100).toFixed(2)}, up to the points you applied.
+              {platformName} checkout stays the full amount. You earn real cashback of about ${(appliedCreditCents / 100).toFixed(2)}, up to the points you applied.
             </DialogDescription>
           </DialogHeader>
           <ol className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground">
@@ -836,7 +836,7 @@ export default function Marketplace() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-marketplace-title">Marketplace</h1>
-            <p className="text-muted-foreground">Browse live listings. eBay checkout stays full price. PackPTS pays cashback after you buy.</p>
+            <p className="text-muted-foreground">Browse live listings. eBay checkout stays the full amount. PackPTS pays cashback after you buy.</p>
             <p className="mt-1">
               <Link href="/redemptions" className="text-sm text-accent underline-offset-4 hover:underline">
                 My Redemptions / receipts
@@ -915,8 +915,8 @@ export default function Marketplace() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder={selectedSetId 
-                        ? "Search within this set... (e.g., Kirby Puckett)"
-                        : "Search for cards... (e.g., 1987 Topps Mark McGwire)"
+                        ? "Search within this set..."
+                        : "Search for cards... (e.g., 1987 Topps)"
                       }
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
@@ -931,8 +931,8 @@ export default function Marketplace() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="relevance">Relevance</SelectItem>
-                        <SelectItem value="priceAsc">Price: Low to High</SelectItem>
-                        <SelectItem value="priceDesc">Price: High to Low</SelectItem>
+                        <SelectItem value="priceAsc">Amount: Low to High</SelectItem>
+                        <SelectItem value="priceDesc">Amount: High to Low</SelectItem>
                         <SelectItem value="endingSoon">Ending Soon</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1029,7 +1029,7 @@ export default function Marketplace() {
                   <div>
                     <h3 className="font-semibold text-lg">Search for Cards</h3>
                     <p className="text-muted-foreground">
-                      Find live listings from eBay. PackPTS you apply stay in your wallet and do not change the price eBay charges. PackPTS earns a commission on eBay purchases through our links.
+                      Find live listings from eBay. PackPTS you apply stay in your wallet and do not change what eBay charges. PackPTS earns a commission on eBay purchases through our links.
                     </p>
                   </div>
                 </CardContent>
@@ -1107,7 +1107,7 @@ export default function Marketplace() {
                 <p className="font-medium">These catalog SKUs are internal PackPTS tokens, not a payout rail.</p>
                 <p className="text-muted-foreground">
                   They are not eBay gift cards and nothing on those sites accepts the hex token.
-                  For real USD cashback, use Live Listings → Apply PackPTS → buy at full price → cashback is added when eBay confirms.
+                  For real USD cashback, use Live Listings → Apply PackPTS → buy at the full amount → cashback is added when eBay confirms.
                 </p>
                 <Button variant="secondary" asChild>
                   <Link href="/redemptions">Go to My Redemptions</Link>

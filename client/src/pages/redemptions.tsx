@@ -387,7 +387,7 @@ function RedemptionsList() {
             <CardContent className="p-8 text-center space-y-2">
               <p className="font-medium">No PackPTS receipts yet</p>
               <p className="text-sm" style={{ color: RECEIPT_COLORS.muted }}>
-                Apply PackPTS on a live listing, buy at partner price, then claim the post-purchase rebate here.
+                Apply PackPTS on a live listing, buy at the partner amount, then claim the post-purchase rebate here.
                 Partner checkout unchanged.
               </p>
               <Button asChild>

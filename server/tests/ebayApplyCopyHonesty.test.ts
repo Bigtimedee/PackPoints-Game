@@ -87,8 +87,8 @@ describe("eBay apply-PackPTS product copy honesty", () => {
     const storage = readFileSync(path.join(ROOT, "server/storage.ts"), "utf8");
     const routes = readFileSync(path.join(ROOT, "server/routes.ts"), "utf8");
 
-    expect(marketplace).toMatch(/do not change the price/i);
-    expect(home).toMatch(/do not change the price eBay charges/i);
+    expect(marketplace).toMatch(/do not change what eBay charges/i);
+    expect(home).toMatch(/do not change what eBay charges/i);
     expect(storage).toMatch(/PackPTS Credit Token/);
     expect(storage).not.toMatch(/eBay Gift Card/);
     expect(routes).toMatch(/not usable at eBay checkout/);

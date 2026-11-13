@@ -128,7 +128,7 @@ export function kitPublicCopy(dayKey: string, shopName: string | null): string {
     "Copy link",
     "Download PNG",
     "Download SVG",
-    "Masked post",
+    "Feed caption",
     "Story",
     "Results",
     "Play link",

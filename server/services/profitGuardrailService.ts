@@ -583,7 +583,7 @@ class ProfitGuardrailService {
         creditCents,
         redemptionCreditId: credit.id,
         purchaseIntentId,
-        message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS. Buy on ${intent.source} at full price, then claim $${(creditCents / 100).toFixed(2)} PackPTS cashback.${clampedMessage}`,
+        message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS. Buy on ${intent.source} at the full amount, then claim $${(creditCents / 100).toFixed(2)} PackPTS cashback.${clampedMessage}`,
       };
     });
   }
