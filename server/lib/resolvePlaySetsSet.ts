@@ -21,6 +21,7 @@ import {
   type PlaySetsSurface,
 } from "@shared/playSetsShare";
 import { ensureHeldSets, isHeldSet } from "../config/heldSets";
+import { releasedExpansionIdForSlug } from "../services/baseballExpansion/daily5Enrollment";
 import fs from "fs";
 import path from "path";
 import { getShareOutputBase } from "../contentFactory/generateScoreCard";
@@ -69,6 +70,17 @@ export async function resolvePlaySetsSet(idOrSlug: string): Promise<ResolvedPlay
         .where(sql`replace(${gameSets.id}, '-', '') like ${prefix + "%"}`)
         .limit(1);
       row = bySlug;
+    }
+  }
+  if (!row) {
+    const releasedId = await releasedExpansionIdForSlug(raw);
+    if (releasedId) {
+      const [byRegistry] = await db.select({
+        id: gameSets.id,
+        setName: gameSets.setName,
+        isActive: gameSets.isActive,
+      }).from(gameSets).where(eq(gameSets.id, releasedId)).limit(1);
+      row = byRegistry;
     }
   }
 

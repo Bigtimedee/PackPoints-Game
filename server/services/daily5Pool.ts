@@ -1,17 +1,18 @@
 /**
- * Cards a Daily 5 deal may use from one set, after every deal-time refusal:
- * playable, verified image, not rejected, mask name still covered, card
- * blocklist (SQL and in-process), known silhouettes, non-player cards, and
- * the mask band limit. Shared by deal creation, the set resolver's
- * "can it deal 5 clean cards" check, and the QA preview, so they agree.
+ * Cards a Daily 5 deal may use from one set. The SQL predicate is
+ * eligibleDealFilter, the same one cardCount and getRandomCardsFromSet use,
+ * so a discovery cohort deals only its active release members and only
+ * card-review-approved rows. The in-process pass then drops known silhouettes,
+ * non-player cards, and mask-band exclusions. Deal creation, the resolver's
+ * "can it deal 5 clean cards" check, and the QA preview share this pool.
  */
-import { and, asc, eq, isNotNull, ne, isNull, or, not, like } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { gameSets, playableCards, type PlayableCard } from "@shared/schema";
 import { db } from "../db";
 import { isKnownSilhouetteUrl } from "../storage";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
-import { maskNameStillCovered } from "./playableSetEligibility";
-import { cardNotBlockedSql, isBlockedCard } from "../lib/cardBlocklist";
+import { eligibleDealFilter } from "./playableSetEligibility";
+import { isBlockedCard } from "../lib/cardBlocklist";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 
 export const DAILY5_CARDS_PER_DEAL = 5;
@@ -27,28 +28,12 @@ export async function loadDaily5Pool(setId: string): Promise<Daily5Pool> {
   const candidates = await db
     .select()
     .from(playableCards)
-    .where(
-      and(
-        eq(playableCards.gameSetId, setId),
-        eq(playableCards.isPlayable, true),
-        or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
-        isNotNull(playableCards.imageUrl),
-        ne(playableCards.imageUrl, ""),
-        not(like(playableCards.imageUrl, "%null%")),
-        like(playableCards.imageUrl, "https://%"),
-        not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Baseball%")),
-        not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Football%")),
-        not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Basketball%")),
-        isNotNull(playableCards.player),
-        ne(playableCards.player, ""),
-        or(
-          isNull(playableCards.imageReviewStatus),
-          ne(playableCards.imageReviewStatus, "rejected")
-        ),
-        maskNameStillCovered("playable_cards"),
-        cardNotBlockedSql("playable_cards"),
-      )
-    )
+    .where(and(
+      eq(playableCards.gameSetId, setId),
+      // Same predicate as cardCount and getRandomCardsFromSet, including the
+      // active release manifest and the card-review guard.
+      eligibleDealFilter("playable_cards"),
+    ))
     // Stable input order so the seeded shuffle, and the QA preview, are
     // reproducible. Without it, row order followed heap position.
     .orderBy(asc(playableCards.id));

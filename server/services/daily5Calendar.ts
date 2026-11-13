@@ -22,12 +22,21 @@
  * No GREEN set lands on two days in a row, including Sun -> Mon.
  *
  * Runtime exclusion (held set, inactive set, too few dealable cards) is
- * applied by resolveDaily5SetForDate, not here.
+ * applied by resolveDaily5SetForDate, not here. That resolver may append
+ * released expansion ids from DAILY5_RELEASED_EXPANSION_START onward.
+ * Days before that date ignore the extra ids.
  */
 import { isPackptsDayKey } from "@shared/packptsDay";
 
 /** Monday. First CT day on the fixed calendar. Do not move it. */
 export const DAILY5_CALENDAR_START = "2026-10-05";
+
+/**
+ * First CT day a released expansion set may take a fallback weekday.
+ * Earlier days keep the green list exactly as configured, so a release
+ * does not move a day that already happened.
+ */
+export const DAILY5_RELEASED_EXPANSION_START = "2026-11-16";
 
 /** 2024 Basketball. Every non-GREEN day, and the runtime fallback. */
 export const DAILY5_FALLBACK_SET_ID_DEFAULT = "229f0379-aa56-40a8-abe3-1af217a397e8";
@@ -73,6 +82,27 @@ export function daily5GreenSetIds(env: Env = process.env): string[] {
 
 export function daily5CalendarConfig(env: Env = process.env): Daily5CalendarConfig {
   return { greenSetIds: daily5GreenSetIds(env), fallbackSetId: daily5FallbackSetId(env) };
+}
+
+/**
+ * Append released expansion ids after the configured green list, on and after
+ * DAILY5_RELEASED_EXPANSION_START only. Existing green slots stay put.
+ * Before that day, and when the list is empty, the config is unchanged.
+ */
+export function daily5ConfigForDate(
+  dayKey: string,
+  config: Daily5CalendarConfig = daily5CalendarConfig(),
+  releasedExpansionIds: readonly string[] = [],
+): Daily5CalendarConfig {
+  if (releasedExpansionIds.length === 0 || dayKey < DAILY5_RELEASED_EXPANSION_START) return config;
+  const green = [...config.greenSetIds];
+  for (const raw of releasedExpansionIds) {
+    const id = normalizeId(raw);
+    if (!id || id === config.fallbackSetId || green.includes(id)) continue;
+    green.push(id);
+  }
+  if (green.length === config.greenSetIds.length) return config;
+  return { greenSetIds: green, fallbackSetId: config.fallbackSetId };
 }
 
 function dayNumber(dayKey: string): number {

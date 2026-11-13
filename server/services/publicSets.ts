@@ -20,6 +20,7 @@ import {
   eligibleCountsForSetIds,
 } from "./playableSetEligibility";
 import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
+import { releasedExpansionIdForSlug } from "./baseballExpansion/daily5Enrollment";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { applySetDisplayTitle, applySetYear } from "@shared/setDisplayOverride";
 import { readyMaskedCoverUrls, readyMaskedCovers } from "./setCovers";
@@ -190,6 +191,15 @@ export async function handlePublicSetDetail(req: Request, res: Response): Promis
           .where(sql`replace(${gameSets.id}, '-', '') like ${prefix + "%"}`)
           .limit(1);
         resolved = bySlug;
+      }
+    }
+    if (!resolved) {
+      const releasedId = await releasedExpansionIdForSlug(setRef);
+      if (releasedId) {
+        const [byRegistry] = await db.select(publicSetColumns()).from(gameSets)
+          .where(eq(gameSets.id, releasedId))
+          .limit(1);
+        resolved = byRegistry;
       }
     }
 

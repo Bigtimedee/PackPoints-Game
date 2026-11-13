@@ -6,7 +6,7 @@ Do not merge from this document. The parent coordinates the infra deploy separat
 
 ## What stays closed
 
-All 16 proposed ids are `no_mask_profile`, absent from `CLEARED_SET_IDS`, and not design-approved. `POST /api/qa/sets/:id/design-approval` returns `409 held_prep_only` for them even if a profile exists. Public `/api/sets/:id`, `/api/sets/:id/covers/:slot`, `/api/game/start`, and `/api/play/m/` use that hold. `getMaskProfile(name, id)` does not use the 1989 Upper Deck 20% fallback. Daily 5 skips them with `expansion_not_enrolled` even when a caller ignores the hold flag. Evidence: `server/tests/baseballExpansion.hold.test.ts`.
+All 16 proposed ids are `no_mask_profile`, absent from `CLEARED_SET_IDS`, and not design-approved. `POST /api/qa/sets/:id/design-approval` returns `409 held_prep_only` for them even if a profile exists. Public `/api/sets/:id`, `/api/sets/:id/covers/:slot`, `/api/game/start`, and `/api/play/m/` use that hold. `getMaskProfile(name, id)` does not use the 1989 Upper Deck 20% fallback. Daily 5 skips an unreleased id with `expansion_not_enrolled` even when a caller ignores the hold flag. An active release manifest enrolls that set when it is not held. 1991 Upper Deck stays excluded. Evidence: `server/tests/baseballExpansion.hold.test.ts`.
 
 ## Staff routes
 
@@ -58,7 +58,7 @@ All 16 missing targets now have a published checklist length. `confirmImport` re
 | 1991 Donruss | `e4f4a86e-3908-5e93-af8f-fd8462c25d97` | 770 |
 | 1989–1991 Upper Deck | see registry | 800, high series included, Final Edition excluded |
 
-Provenance on each row is the BaseballCardPedia base checklist opened Nov 8, 2026. Supplier previews are complete and inserted nothing. Candidate totals, which are not these caps: 1990 Topps 305, 1991 Topps 317, Fleer 1986–1991 448, 21, 145, 267, 429, 55, Donruss 1986 and 1988–1991 142, 267, 364, 512, 413, Upper Deck 1989–1991 122, 462, 486. That is 4,755 candidates. Profiles stay unregistered, public routes stay 404, and Daily 5 stays blocked.
+Provenance on each row is the BaseballCardPedia base checklist opened Nov 8, 2026. Supplier previews are complete and inserted nothing. Candidate totals, which are not these caps: 1990 Topps 305, 1991 Topps 317, Fleer 1986–1991 448, 21, 145, 267, 429, 55, Donruss 1986 and 1988–1991 142, 267, 364, 512, 413, Upper Deck 1989–1991 122, 462, 486. That is 4,755 candidates. Profiles stay unregistered. Public id routes and bare registry slugs stay 404 until an active release manifest clears the hold. Daily 5 stays blocked until that manifest is active and the set is not held.
 
 A held insert does not validate the scan. The job report sets `sourceValidated` false. The fill job does not download a scan. Passing the checklist cap only means the printed number is in range. `rejectCardIds` is not a positive allowlist. Every missing expansion set, not only 1991 Upper Deck, refuses `confirmImport` with `exact_source_required` until that set has a discovery cohort and staged bytes for a pass-candidate. A denylist does not insert those sets.
 

@@ -62,6 +62,7 @@ import { maskedPlayPath } from "../services/playImageToken";
 import { publicMaskDenyReason, resetPublicMaskSetCacheForTests } from "../services/publicMaskGate";
 import { handlePublicSetDetail } from "../services/publicSets";
 import { handlePublicSetCover } from "../services/setCovers";
+import { daily5ExpansionSkipReason } from "../services/baseballExpansion/daily5Enrollment";
 import { resolveDaily5SetForDate } from "../services/daily5SetPick";
 
 const small = BASEBALL_EXPANSION_TARGETS.find((target) => target.slug === "1986-donruss-baseball")!;
@@ -605,6 +606,7 @@ describe("per-card release bindings", () => {
     await refreshHeldSets();
     expect(isHeldSet(floor.id)).toBe(false);
     expect(isDaily5ExpansionBlocked(floor.id)).toBe(true);
+    expect(await daily5ExpansionSkipReason(floor.id)).toBeNull();
     const opened = capture();
     await handlePublicSetDetail({ params: { id: floor.id }, headers: {} } as never, opened.res as never);
     expect(opened.status).not.toBe(404);
@@ -618,6 +620,7 @@ describe("per-card release bindings", () => {
     expect(await getMaskedImagePath(releasedCard)).toBeNull();
     await refreshHeldSets();
     expect(isHeldSet(floor.id)).toBe(true);
+    expect(await daily5ExpansionSkipReason(floor.id)).toBe("expansion_not_enrolled");
     const closed = capture();
     await handlePublicSetDetail({ params: { id: floor.id }, headers: {} } as never, closed.res as never);
     expect(closed.status).toBe(404);

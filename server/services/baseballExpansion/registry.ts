@@ -95,10 +95,30 @@ export const BASEBALL_EXPANSION_TARGETS: readonly ExpansionTarget[] = [
 ];
 
 const byId = new Map(BASEBALL_EXPANSION_TARGETS.map((target) => [target.id.toLowerCase(), target]));
+const bySlug = new Map(BASEBALL_EXPANSION_TARGETS.map((target) => [target.slug, target]));
+
+/**
+ * 1991 Upper Deck is stopped. An active manifest cannot put it in Daily 5.
+ * The id matches UD_1991_DISCOVERY. It stays here so this file does not import
+ * the cohort module.
+ */
+export const DAILY5_EXCLUDED_EXPANSION_IDS: readonly string[] = [
+  "cd597562-5b8f-5517-aca0-38b04f443747",
+];
 
 export function expansionTargetById(id: string | null | undefined): ExpansionTarget | null {
   if (!id) return null;
   return byId.get(id.trim().toLowerCase()) ?? null;
+}
+
+export function expansionTargetBySlug(slug: string | null | undefined): ExpansionTarget | null {
+  if (!slug) return null;
+  return bySlug.get(slug.trim().toLowerCase()) ?? null;
+}
+
+export function isDaily5ExpansionExcluded(id: string | null | undefined): boolean {
+  if (!id) return false;
+  return DAILY5_EXCLUDED_EXPANSION_IDS.includes(id.trim().toLowerCase());
 }
 
 export function missingExpansionTargets(): ExpansionTarget[] {
@@ -111,8 +131,12 @@ export function isMissingExpansionId(id: string | null | undefined): boolean {
 }
 
 /**
- * Daily 5 must not pick these ids when a later Design approval lifts the hold.
- * Removing one id is the reviewed enrollment step. An env allowlist does not.
+ * Static missing-list check. It does not read a release manifest.
+ * Daily 5 enrollment is `daily5ExpansionSkipReason`: a missing id stays
+ * blocked until an active release manifest is confirmed and the set is not
+ * held. Unknown release or hold state stays blocked. 1991 Upper Deck stays
+ * excluded even if a manifest row exists. Callers that cannot load that
+ * state must keep treating a true result as blocked.
  */
 export function isDaily5ExpansionBlocked(id: string | null | undefined): boolean {
   return isMissingExpansionId(id);
