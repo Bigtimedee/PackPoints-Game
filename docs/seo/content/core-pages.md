@@ -8,7 +8,7 @@
 
 Remember sorting a fresh rack pack on the living room floor, calling out every face before you flipped the card over? PackPTS is that feeling, any time you want it.
 
-Each round deals a real card from a set collectors love, from the wood grain borders of the late eighties to sharp modern chrome. The name is covered. The photo, the uniform, the pose and the design are all yours to read. Pick the right player from four choices and you earn points.
+Each round deals a real card from a set collectors love, from the wood grain frames of the late eighties to sharp modern chrome. The name is covered. The photo, the uniform, the pose and the design are all yours to read. Pick the right player from four choices and you earn points.
 
 Start with the Daily 5: the same five cards for everyone, new every day, so you can compare scores with your friends and the rest of the hobby. Want more? Open a set and play as much as you like, from 1986 Topps Baseball to 1990 Hoops to 2022 Panini Chronicles Football.
 
@@ -93,7 +93,7 @@ Yes. PackPTS is free to play in any web browser, on your phone or your computer,
 
 **Opening:** PackPTS lets you play full trading card sets one card at a time: pick a set, see a real card with the name masked, and name the player.
 
-Every collector has a set that takes them straight back. Maybe it is the wood grain of 1987 Topps, the dark ebony borders of 1987 Donruss, or the full bleed photos of 1995 Upper Deck. Here you can play the set you remember, card by card.
+Every collector has a set that takes them straight back. Maybe it is the wood grain of 1987 Topps, the dark ebony frames of 1987 Donruss, or the full bleed photos of 1995 Upper Deck. Here you can play the set you remember, card by card.
 
 Each set page deals real cards from that release with the name masked. Pick the player from four choices and earn points as you go. Play one round over coffee or work through a few hundred cards on a slow Sunday.
 

@@ -21,7 +21,7 @@ core["/"]=dict(
  answer="PackPTS is a free sports card game where you see a real trading card with the name masked and pick the player from four choices.",
  body="""Remember sorting a fresh rack pack on the living room floor, calling out every face before you flipped the card over? PackPTS is that feeling, any time you want it.
 
-Each round deals a real card from a set collectors love, from the wood grain borders of the late eighties to sharp modern chrome. The name is covered. The photo, the uniform, the pose and the design are all yours to read. Pick the right player from four choices and you earn points.
+Each round deals a real card from a set collectors love, from the wood grain frames of the late eighties to sharp modern chrome. The name is covered. The photo, the uniform, the pose and the design are all yours to read. Pick the right player from four choices and you earn points.
 
 Start with the Daily 5: the same five cards for everyone, new every day, so you can compare scores with your friends and the rest of the hobby. Want more? Open a set and play as much as you like, from 1986 Topps Baseball to 1990 Hoops to 2022 Panini Chronicles Football.
 
@@ -55,7 +55,7 @@ core["/sets"]=dict(
  description="Play classic and modern card sets on PackPTS: 1986 Topps, 1988 Topps, 1987 Donruss, 1990 Hoops, 1995 Upper Deck and more. Free to play.",
  h1="Play Your Favorite Card Sets",
  answer="PackPTS lets you play full trading card sets one card at a time: pick a set, see a real card with the name masked, and name the player.",
- body="""Every collector has a set that takes them straight back. Maybe it is the wood grain of 1987 Topps, the dark ebony borders of 1987 Donruss, or the full bleed photos of 1995 Upper Deck. Here you can play the set you remember, card by card.
+ body="""Every collector has a set that takes them straight back. Maybe it is the wood grain of 1987 Topps, the dark ebony frames of 1987 Donruss, or the full bleed photos of 1995 Upper Deck. Here you can play the set you remember, card by card.
 
 Each set page deals real cards from that release with the name masked. Pick the player from four choices and earn points as you go. Play one round over coffee or work through a few hundred cards on a slow Sunday.
 
@@ -127,18 +127,18 @@ Questions, ideas or a set you want to see? Email us at support@packpts.com. We r
 
 # set facts: set-level only
 NOTES={
-"1986 Topps Baseball":("Bold dark top band carrying the team name over clean pale borders, one of the most recognizable designs of the decade.","The mid eighties, just before the junk wax boom"),
+"1986 Topps Baseball":("Bold dark top band carrying the team name over clean pale frames, one of the most recognizable designs of the decade.","The mid eighties, just before the junk wax boom"),
 "1995 Upper Deck Basketball":("Glossy full bleed photography edge to edge, the look that made Upper Deck the premium name of the nineties.","The nineties premium era"),
-"1988 Topps Baseball":("Crisp bright borders with a bright team banner, a simple design that defined a huge print run.","The heart of the junk wax era"),
-"1987 Donruss Baseball":("Striking dark ebony borders that reveal every bit of wear, which makes a sharp copy a real prize.","The early junk wax era"),
-"1990 Hoops Basketball":("The second year of NBA Hoops, with bright borders and action photos from the league's golden era.","The junk wax era"),
+"1988 Topps Baseball":("Crisp bright frames with a bright team banner, a simple design that defined a huge print run.","The heart of the junk wax era"),
+"1987 Donruss Baseball":("Striking dark ebony frames that reveal every bit of wear, which makes a sharp copy a real prize.","The early junk wax era"),
+"1990 Hoops Basketball":("The second year of NBA Hoops, with bright frames and action photos from the league's golden era.","The junk wax era"),
 "2022 Panini Chronicles Football":("A multi brand release that gathers many classic Panini designs into one set, so every pack feels like a sampler.","The modern era"),
-"1987 Topps Football":("Clean bright borders with team colors, from the classic Topps football run of the eighties.","The mid eighties"),
-"1989 Fleer Basketball":("Bright borders with colorful striping, a favorite of late eighties hoops collectors.","The junk wax era"),
+"1987 Topps Football":("Clean bright frames with team colors, from the classic Topps football run of the eighties.","The mid eighties"),
+"1989 Fleer Basketball":("Bright frames with colorful striping, a favorite of late eighties hoops collectors.","The junk wax era"),
 "1994 Topps Football":("Glossy nineties photography with a modern feel, from the era when football cards went premium.","The nineties"),
 "2024-25 Topps Chrome Basketball":("Topps Chrome's signature chromium finish with a bright, glossy shine and sharp modern photography.","The modern era"),
-"1989 Topps":("Bright borders with a curved color ribbon along the bottom, one of the most familiar baseball designs ever printed.","The heart of the junk wax era"),
-"1987 Topps":("The famous wood grain borders, a nod to the classic 1962 design and an all time collector favorite.","The early junk wax era"),
+"1989 Topps":("Bright frames with a curved color ribbon along the bottom, one of the most familiar baseball designs ever printed.","The heart of the junk wax era"),
+"1987 Topps":("The famous wood grain frames, a nod to the classic 1962 design and an all time collector favorite.","The early junk wax era"),
 }
 # live names that differ from /api/sets (id -> fields); 229f0379 renamed live Oct 15, 2026
 OVERRIDES={"229f0379-aa56-40a8-abe3-1af217a397e8":{"setName":"2024-25 Topps Chrome Basketball","brand":"Topps","year":"2024-25"}}
