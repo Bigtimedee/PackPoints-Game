@@ -8,7 +8,7 @@
 
 Pull up a chair, collector. 1986 Topps Baseball is dealt and waiting.
 
-Bold dark top band carrying the team name over clean pale borders, one of the most recognizable designs of the decade. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+Bold dark top band carrying the team name over clean pale frames, one of the most recognizable designs of the decade. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 407 1986 Topps Baseball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -20,7 +20,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: baseball
 - playableCards: 407
 - era: The mid eighties, just before the junk wax boom
-- designNotes: Bold dark top band carrying the team name over clean pale borders, one of the most recognizable designs of the decade.
+- designNotes: Bold dark top band carrying the team name over clean pale frames, one of the most recognizable designs of the decade.
 
 ## FAQ
 **What is the 1986 Topps Baseball game?**
@@ -104,7 +104,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 Pull up a chair, collector. 1988 Topps Baseball is dealt and waiting.
 
-Crisp bright borders with a bright team banner, a simple design that defined a huge print run. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+Crisp bright frames with a bright team banner, a simple design that defined a huge print run. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 490 1988 Topps Baseball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -116,7 +116,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: baseball
 - playableCards: 490
 - era: The heart of the junk wax era
-- designNotes: Crisp bright borders with a bright team banner, a simple design that defined a huge print run.
+- designNotes: Crisp bright frames with a bright team banner, a simple design that defined a huge print run.
 
 ## FAQ
 **What is the 1988 Topps Baseball game?**
@@ -152,7 +152,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 Pull up a chair, collector. 1987 Donruss Baseball is dealt and waiting.
 
-Striking dark ebony borders that reveal every bit of wear, which makes a sharp copy a real prize. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+Striking dark ebony frames that reveal every bit of wear, which makes a sharp copy a real prize. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 261 1987 Donruss Baseball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -164,7 +164,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: baseball
 - playableCards: 261
 - era: The early junk wax era
-- designNotes: Striking dark ebony borders that reveal every bit of wear, which makes a sharp copy a real prize.
+- designNotes: Striking dark ebony frames that reveal every bit of wear, which makes a sharp copy a real prize.
 
 ## FAQ
 **What is the 1987 Donruss Baseball game?**
@@ -200,7 +200,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 Pull up a chair, collector. 1990 Hoops Basketball is dealt and waiting.
 
-The second year of NBA Hoops, with bright borders and action photos from the league's golden era. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+The second year of NBA Hoops, with bright frames and action photos from the league's golden era. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 113 1990 Hoops Basketball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -212,7 +212,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: basketball
 - playableCards: 113
 - era: The junk wax era
-- designNotes: The second year of NBA Hoops, with bright borders and action photos from the league's golden era.
+- designNotes: The second year of NBA Hoops, with bright frames and action photos from the league's golden era.
 
 ## FAQ
 **What is the 1990 Hoops Basketball game?**
@@ -296,7 +296,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 Pull up a chair, collector. 1987 Topps Football is dealt and waiting.
 
-Clean bright borders with team colors, from the classic Topps football run of the eighties. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+Clean bright frames with team colors, from the classic Topps football run of the eighties. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 39 1987 Topps Football cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -308,7 +308,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: football
 - playableCards: 39
 - era: The mid eighties
-- designNotes: Clean bright borders with team colors, from the classic Topps football run of the eighties.
+- designNotes: Clean bright frames with team colors, from the classic Topps football run of the eighties.
 
 ## FAQ
 **What is the 1987 Topps Football game?**
@@ -344,7 +344,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 Pull up a chair, collector. 1989 Fleer Basketball is dealt and waiting.
 
-Bright borders with colorful striping, a favorite of late eighties hoops collectors. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+Bright frames with colorful striping, a favorite of late eighties hoops collectors. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 58 1989 Fleer Basketball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -356,7 +356,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: basketball
 - playableCards: 58
 - era: The junk wax era
-- designNotes: Bright borders with colorful striping, a favorite of late eighties hoops collectors.
+- designNotes: Bright frames with colorful striping, a favorite of late eighties hoops collectors.
 
 ## FAQ
 **What is the 1989 Fleer Basketball game?**
@@ -488,7 +488,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 Pull up a chair, collector. 1989 Topps Baseball is dealt and waiting.
 
-Bright borders with a curved color ribbon along the bottom, one of the most familiar baseball designs ever printed. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+Bright frames with a curved color ribbon along the bottom, one of the most familiar baseball designs ever printed. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 297 1989 Topps Baseball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -500,7 +500,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: baseball
 - playableCards: 297
 - era: The heart of the junk wax era
-- designNotes: Bright borders with a curved color ribbon along the bottom, one of the most familiar baseball designs ever printed.
+- designNotes: Bright frames with a curved color ribbon along the bottom, one of the most familiar baseball designs ever printed.
 
 ## FAQ
 **What is the 1989 Topps Baseball game?**
@@ -536,7 +536,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 Pull up a chair, collector. 1987 Topps Baseball is dealt and waiting.
 
-The famous wood grain borders, a nod to the classic 1962 design and an all time collector favorite. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+The famous wood grain frames, a nod to the classic 1962 design and an all time collector favorite. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
 Every round deals one real card from our pool of 502 1987 Topps Baseball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
@@ -548,7 +548,7 @@ Every card is scanned and checked by our team, and every mask is reviewed by han
 - sport: baseball
 - playableCards: 502
 - era: The early junk wax era
-- designNotes: The famous wood grain borders, a nod to the classic 1962 design and an all time collector favorite.
+- designNotes: The famous wood grain frames, a nod to the classic 1962 design and an all time collector favorite.
 
 ## FAQ
 **What is the 1987 Topps Baseball game?**
