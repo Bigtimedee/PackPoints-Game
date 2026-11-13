@@ -99,7 +99,7 @@ export function FoundersPassCard() {
           </Badge>
         </div>
         <CardDescription>
-          {isActive && "Share this one-time pass with a friend to give them instant access."}
+          {isActive && "Share this one-time pass with a friend to grant them instant access."}
           {isConsumed && "Your pass has been used. Thanks for spreading the word!"}
           {isDeactivated && "All 500 Founder spots are filled. Passes are no longer active."}
           {pass.status === "EXPIRED" && "This pass has expired and can no longer be used."}

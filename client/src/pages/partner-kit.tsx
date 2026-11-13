@@ -83,7 +83,7 @@ export default function PartnerKitPage() {
       <p className="mt-3 text-lg text-muted-foreground">{meta.data?.lead ?? KIT_PAGE_LEAD}</p>
       {captions.shop ? <p className="mt-4 text-base font-medium">{captions.shop}</p> : null}
 
-      <CaptionBlock title="Feed caption" text={captions.feed} testId="caption-feed" />
+      <CaptionBlock title="Masked post" text={captions.feed} testId="caption-feed" />
       <KitImage src={asset("feed")} alt="Masked card" />
 
       <CaptionBlock title="Story" text={captions.story} testId="caption-story" />

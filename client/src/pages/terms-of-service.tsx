@@ -59,8 +59,8 @@ export default function TermsOfService() {
           <section>
             <h2 className="text-lg font-semibold mb-3">6. Marketplace and Rebates</h2>
             <ul className="list-disc pl-5 space-y-2">
-              <li>The Marketplace shows live eBay listings. We do not sell the cards. You buy from eBay at the full amount and under its terms. PackPTS earns a commission on eBay purchases through our links.</li>
-              <li>You can apply points only to a listing shown to you inside PackPTS. Applying takes the points from your wallet right away and sets the most rebate you can earn on that listing. It does not lower what eBay charges.</li>
+              <li>The Marketplace shows live eBay listings. We do not sell the cards. You buy from eBay at its full price and under its terms. PackPTS earns a commission on eBay purchases through our links.</li>
+              <li>You can apply points only to a listing shown to you inside PackPTS. Applying takes the points from your wallet right away and sets the most rebate you can earn on that listing. It does not lower the price eBay charges.</li>
               <li>Purchased points can be applied to listings and count toward rebates the same way as earned points.</li>
               <li>You earn real cashback on that purchase, up to the value of the points you applied. Rebates are also limited per user per day and per week, and are funded from a reserve that we can pause when it is low.</li>
               <li>A rebate is added to your USD rebate balance only when eBay's affiliate report confirms your purchase of that item through our tracked link. If eBay reports a lower total, the rebate and the points used are reduced in proportion and unused points go back to your wallet. If you do not buy, you can cancel the apply and get your points back.</li>
@@ -81,7 +81,7 @@ export default function TermsOfService() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3">8. Purchases</h2>
-            <p>Point bundles and subscriptions are processed by Stripe. All purchases are final and non-refundable unless legally required. By making a purchase you also agree to Stripe's terms of service.</p>
+            <p>Point bundles and subscriptions are processed by Stripe. All purchases are final and non-refundable unless required by law. By making a purchase you also agree to Stripe's terms of service.</p>
           </section>
 
           <section>
@@ -107,7 +107,7 @@ export default function TermsOfService() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3">12. Limitation of Liability</h2>
-            <p>To the fullest extent legally permitted, PackPTS shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service, including loss of points or rebates due to technical issues.</p>
+            <p>To the fullest extent permitted by law, PackPTS shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service, including loss of points or rebates due to technical issues.</p>
           </section>
 
           <section>
@@ -117,12 +117,12 @@ export default function TermsOfService() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3">14. Changes to Terms</h2>
-            <p>We may update these terms from time to time. If you keep using the Service after changes, you accept the new terms. We will publish the updated terms with a new effective date.</p>
+            <p>We may update these terms from time to time. Continued use of the Service after changes means you accept the new terms. We will post the updated terms with a new effective date.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">15. Governing rules</h2>
-            <p>These terms are governed by the laws of the United States. Any disputes shall be resolved through binding arbitration rather than in court, except where legally prohibited.</p>
+            <h2 className="text-lg font-semibold mb-3">15. Governing Law</h2>
+            <p>These terms are governed by the laws of the United States. Any disputes shall be resolved through binding arbitration rather than in court, except where prohibited by law.</p>
           </section>
 
           <section>

@@ -394,7 +394,7 @@ export async function sendRebateReceiptEmail(
     `Granted $${dollars} after your ${sourceName} purchase of ${listing}.`,
     `PackPTS spent: ${details.packptsSpent}`,
     rebateReceiptSplit(details.userShareRate),
-    `${sourceName} charged the full amount. PackPTS paid this cashback.`,
+    `${sourceName} charged full price. PackPTS paid this cashback.`,
     details.receiptUrl,
   ].join("\n");
   return sendEmail({

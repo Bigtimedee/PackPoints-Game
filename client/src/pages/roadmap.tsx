@@ -15,7 +15,7 @@ const ROADMAP_ITEMS = [
   { status: "done", category: "Game", title: "1v1 friend matches", description: "Challenge friends with a shared join code." },
   { status: "done", category: "Game", title: "Daily 5 challenge", description: "5 curated cards per day with streak tracking." },
   { status: "done", category: "Rewards", title: "PackPTS wallet", description: "Earn, track, and redeem points." },
-  { status: "done", category: "Rewards", title: "eBay listing browse + PackPTS reserve", description: "Browse live eBay listings from PackPTS. Applied PackPTS stay in your wallet and do not change what eBay charges." },
+  { status: "done", category: "Rewards", title: "eBay listing browse + PackPTS reserve", description: "Browse live eBay listings from PackPTS. Applied PackPTS stay in your wallet and do not change the eBay price." },
   { status: "done", category: "Social", title: "Global leaderboard", description: "See who's leading in PackPTS earned." },
   // In Progress
   { status: "in_progress", category: "Game", title: "Tournament mode", description: "Bracket-style competitions with prize pools." },

@@ -786,17 +786,17 @@ export default function Match() {
 
   if (battleEnded) {
     const reasonText: Record<string, string> = {
-      HOST_LEFT: "Your opponent left the match.",
-      GUEST_LEFT: "Your opponent left the match.",
+      HOST_LEFT: "Your opponent left the Battle.",
+      GUEST_LEFT: "Your opponent left the Battle.",
       HOST_DISCONNECTED: "Your opponent disconnected.",
       GUEST_DISCONNECTED: "Your opponent disconnected.",
       PLAYER_DISCONNECTED: "Your opponent disconnected.",
       REMATCH_FAILED: "Could not start the next match.",
-      NOT_FOUND: "Match ended.",
+      NOT_FOUND: "Battle ended.",
     };
     const isMe = battleEnded.endedByUserId === userId;
-    const headline = isMe ? "Match ended" : "Match ended";
-    const subline = isMe ? "You left the match." : (reasonText[battleEnded.reason] || "Match ended.");
+    const headline = isMe ? "Battle Ended" : "Battle Ended";
+    const subline = isMe ? "You left the Battle." : (reasonText[battleEnded.reason] || "Battle ended.");
     const sr = battleEnded.seriesRecord || battleSession?.seriesRecord;
     const myWins = battleSession
       ? (userId === battleSession.hostUserId ? (sr ? (sr as any).hostWins ?? 0 : 0) : (sr ? (sr as any).guestWins ?? 0 : 0))
@@ -1045,7 +1045,7 @@ export default function Match() {
                         data-testid="button-leave-battle"
                       >
                         <X className="h-4 w-4" />
-                        Leave match
+                        Leave Battle
                       </Button>
                     </div>
                     {myRematchClicked && !opponentRematchReady && (
@@ -1172,7 +1172,7 @@ export default function Match() {
         {battleSession && (
           <div className="mb-3 flex items-center justify-center gap-2" data-testid="battle-header">
             <Badge variant="outline" className="font-mono">
-              Series {battleSession.matchCount > 0 ? `· Match ${battleSession.matchCount}` : ""}
+              Battle {battleSession.matchCount > 0 ? `· Match ${battleSession.matchCount}` : ""}
             </Badge>
             <Badge variant="secondary" className="font-mono" data-testid="battle-series-tally">
               {mySeriesWins}-{opponentSeriesWins}{battleSeries && battleSeries.ties > 0 ? `-${battleSeries.ties}T` : ""}

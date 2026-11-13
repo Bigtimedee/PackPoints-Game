@@ -147,7 +147,7 @@ test.describe("Persistent 1v1 Battle Session", () => {
     // Now User B closes their tab — should end the battle and notify User A.
     await pageB.close();
 
-    await expect(pageA.getByTestId("text-battle-result")).toHaveText(/Match ended/i, {
+    await expect(pageA.getByTestId("text-battle-result")).toHaveText(/Battle Ended/i, {
       timeout: 20_000,
     });
     await expect(pageA.getByTestId("text-battle-reason")).toContainText(/disconnect|left/i);

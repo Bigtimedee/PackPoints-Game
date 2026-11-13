@@ -28,7 +28,7 @@ describe("home reuses gameplay and explains redemption", () => {
     expect(home).toContain('Who is on this 1987 Topps card?');
     expect(home).toContain('<AnswerButton');
     expect(home).not.toContain('X-Card-Options');
-    expect(home).toContain('do not change what eBay charges');
+    expect(home).toContain('do not change the price eBay charges');
   });
 });
 

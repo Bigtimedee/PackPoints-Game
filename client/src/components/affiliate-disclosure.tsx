@@ -32,7 +32,7 @@ export function AffiliateDisclosure({ variant = "compact", className = "" }: Aff
           </p>
           <p>
             Applying PackPTS reserves or spends points in your PackPTS wallet. It does not change
-            what eBay charges.
+            the price eBay charges.
           </p>
         </div>
       </CardContent>
