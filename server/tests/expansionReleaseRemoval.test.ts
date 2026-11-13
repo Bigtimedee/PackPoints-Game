@@ -35,7 +35,8 @@ const { registerDiscoveryCohortRoutes } = await import("../routes/discoveryCohor
 const { sendMaskedCard } = await import("../services/playImageSend");
 const { handleMaskedToken } = await import("../services/playImageHttp");
 const { maskTokenMatches, maskedPlayPath } = await import("../services/playImageToken");
-const { PER_CARD_RENDERER_IDS } = await import("../services/baseballExpansion/perCardRelease");
+const { PER_CARD_RENDERER_IDS, setReleasePurgeFailureForTests } = await import("../services/baseballExpansion/perCardRelease");
+const { handlePublicSetCover, setCoverWarmReadyForTests, clearSetCoverCaches } = await import("../services/setCovers");
 const { CURRENT_MASK_VERSION } = await import("@shared/maskGeometry");
 const { MASKED_CARDS_DIR } = await import("../masking/maskPlanStore");
 
@@ -78,8 +79,12 @@ describe("explicit expansion release removal", () => {
   const written: string[] = [];
 
   afterAll(async () => {
+    setReleasePurgeFailureForTests(null);
+    setCoverWarmReadyForTests(false);
+    clearSetCoverCaches();
     if (previous === undefined) delete process.env.COVER_QA_TOKEN;
     else process.env.COVER_QA_TOKEN = previous;
+    if (process.env.SET_COVER_CACHE === "1") delete process.env.SET_COVER_CACHE;
     await resetSet();
     for (const file of written) await rm(file, { force: true });
   });
@@ -103,9 +108,9 @@ describe("explicit expansion release removal", () => {
         preview: Buffer.from(`preview-removal-${n}-${digest.slice(0, 8)}`),
       });
     }
-    const leaked = cards[COUNT - 1]!;
+    const leaked = cards[0]!;
     const permanent = cards[COUNT - 2]!;
-    const kept = cards[0]!;
+    const kept = cards[1]!;
     const allKeys = cards.map((card) => card.memberKey);
     const app = express();
     app.use(express.json({ limit: "3mb" }));
@@ -113,6 +118,7 @@ describe("explicit expansion release removal", () => {
     app.get("/api/cards/:cardId/masked-image", async (req, res) => {
       await sendMaskedCard(req, res, req.params.cardId);
     });
+    app.get("/api/sets/:setId/covers/:slot", (req, res) => { void handlePublicSetCover(req, res); });
     app.get("/api/play/m/:scope/:sessionId/:index/:token", (req, res) => {
       void handleMaskedToken(req, res, {
         authorizeCardId: async () => "denied",
@@ -241,6 +247,39 @@ describe("explicit expansion release removal", () => {
       expect(stale.body.code).toBe("release_manifest_mismatch");
       expect(await db.select({ id: expansionReleaseRemovals.id }).from(expansionReleaseRemovals).where(eq(expansionReleaseRemovals.setId, SET))).toHaveLength(0);
 
+      const mismatched = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, {
+        ...replaceBase,
+        memberKeys: allKeys.filter((key) => key !== leaked.memberKey),
+        removals: [{ memberKey: permanent.memberKey, reason: "leaked-surname" }],
+      });
+      expect(mismatched.status).toBe(409);
+      expect(mismatched.body.code).toBe("release_member_removed");
+      const duplicate = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, {
+        ...replaceBase,
+        memberKeys: allKeys.filter((key) => key !== leaked.memberKey),
+        removals: [
+          { memberKey: leaked.memberKey, reason: "leaked-surname" },
+          { memberKey: leaked.memberKey, reason: "leaked-surname" },
+        ],
+      });
+      expect(duplicate.status).toBe(409);
+      expect(duplicate.body.code).toBe("release_member_removed");
+      const badKey = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, {
+        ...replaceBase,
+        memberKeys: allKeys.filter((key) => key !== leaked.memberKey),
+        removals: [{ memberKey: "not a key", reason: "leaked-surname" }],
+      });
+      expect(badKey.status).toBe(409);
+      expect(badKey.body.code).toBe("release_removal_invalid");
+      const missingReason = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, {
+        ...replaceBase,
+        memberKeys: allKeys.filter((key) => key !== leaked.memberKey),
+        removals: [{ memberKey: leaked.memberKey }],
+      });
+      expect(missingReason.status).toBe(400);
+      expect((await activeManifest())?.id).toBe(manifestId);
+      expect(await db.select({ id: expansionReleaseRemovals.id }).from(expansionReleaseRemovals).where(eq(expansionReleaseRemovals.setId, SET))).toHaveLength(0);
+
       await mkdir(MASKED_CARDS_DIR, { recursive: true });
       const leakedFiles = maskFiles(leakedId);
       const keptFiles = maskFiles(keptId);
@@ -251,14 +290,25 @@ describe("explicit expansion release removal", () => {
       expect(before.directBytes).toEqual(leaked.native);
       expect(before.dailyStatus).toBe(200);
       expect(before.dailyBytes).toEqual(leaked.native);
+      process.env.SET_COVER_CACHE = "1";
+      setCoverWarmReadyForTests(true);
+      clearSetCoverCaches();
+      const coverBefore = await fetch(`${base}/api/sets/${SET}/covers/0`);
+      expect(coverBefore.status).toBe(200);
+      expect(Buffer.from(await coverBefore.arrayBuffer())).toEqual(leaked.native);
 
-      const removed = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, {
+      const removalBody = {
         ...replaceBase,
         memberKeys: allKeys.filter((key) => key !== leaked.memberKey),
         removals: [{ memberKey: leaked.memberKey, reason: "leaked-surname" }],
-      });
+      };
+      setReleasePurgeFailureForTests(() => { throw new Error("forced-purge"); });
+      const removed = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, removalBody);
+      setReleasePurgeFailureForTests(null);
       expect(removed.status).toBe(200);
-      expect(removed.body).toMatchObject({ releaseAuthorized: true, unchanged: false, memberCount: COUNT - 1, version: 2 });
+      expect(removed.body).toMatchObject({
+        releaseAuthorized: true, unchanged: false, memberCount: COUNT - 1, version: 2, purgeIncomplete: true,
+      });
       const afterRemoval = await activeManifest();
       expect(afterRemoval?.id).not.toBe(manifestId);
       const audits = await db.select().from(expansionReleaseRemovals).where(eq(expansionReleaseRemovals.setId, SET));
@@ -272,16 +322,28 @@ describe("explicit expansion release removal", () => {
         fromManifestId: manifestId,
         toManifestId: afterRemoval?.id,
       });
-      const after = await maskOf(leakedId);
-      expect(after.directStatus).toBe(404);
-      expect(after.directBytes.equals(leaked.native)).toBe(false);
-      expect(after.dailyStatus).toBe(404);
-      expect(after.dailyBytes.equals(leaked.native)).toBe(false);
+      const heldClosed = await maskOf(leakedId);
+      expect(heldClosed.directStatus).toBe(404);
+      expect(heldClosed.directBytes.equals(leaked.native)).toBe(false);
+      expect(heldClosed.dailyStatus).toBe(404);
+      for (const file of leakedFiles) expect(existsSync(file)).toBe(true);
+      const staleCover = await fetch(`${base}/api/sets/${SET}/covers/0`, { headers: { "if-none-match": `"${CURRENT_MASK_VERSION}"` } });
+      expect(staleCover.status).toBe(404);
+      expect(Buffer.from(await staleCover.arrayBuffer()).equals(leaked.native)).toBe(false);
+
+      const healed = await post(`/api/qa/baseball-expansion/${SET}/discovery-cohort/set-clearance/replace`, removalBody);
+      expect(healed.status).toBe(200);
+      expect(healed.body).toMatchObject({ releaseAuthorized: true, unchanged: true, manifestId: afterRemoval?.id, memberCount: COUNT - 1 });
+      expect(healed.body.purgeIncomplete).toBeUndefined();
       for (const file of leakedFiles) expect(existsSync(file)).toBe(false);
       for (const file of keptFiles) expect(existsSync(file)).toBe(true);
       const keptStill = await maskOf(keptId);
       expect(keptStill.directStatus).toBe(200);
       expect(keptStill.directBytes).toEqual(kept.native);
+      const coverAfter = await fetch(`${base}/api/sets/${SET}/covers/0`);
+      expect(coverAfter.status).toBe(200);
+      expect(Buffer.from(await coverAfter.arrayBuffer())).toEqual(kept.native);
+      expect(await db.select({ id: expansionReleaseRemovals.id }).from(expansionReleaseRemovals).where(eq(expansionReleaseRemovals.setId, SET))).toHaveLength(1);
 
       const permanentFiles = maskFiles(permanentId);
       written.push(...permanentFiles);
@@ -352,6 +414,7 @@ describe("explicit expansion release removal", () => {
       expect(withoutDropped.status).toBe(200);
       expect(withoutDropped.body).toMatchObject({ releaseAuthorized: true, memberCount: COUNT - 2, version: 4 });
     } finally {
+      setReleasePurgeFailureForTests(null);
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   }, 180000);

@@ -722,6 +722,8 @@ type ReleaseWrite = {
   memberCount: number;
   releasedMembershipSha256: string;
   unchanged: boolean;
+  /** Set when the manifest committed and the cache purge did not finish. */
+  purgeIncomplete?: boolean;
 };
 type ReleaseFail = { ok: false; code: ReleaseRefusal; eligibleCount: number; discoveryCount: number };
 
@@ -729,6 +731,12 @@ type ReleaseFail = { ok: false; code: ReleaseRefusal; eligibleCount: number; dis
 let replaceAfterRevokeForTests: (() => void) | null = null;
 export function setReplaceReleaseAfterRevokeForTests(hook: (() => void) | null): void {
   replaceAfterRevokeForTests = hook;
+}
+
+/** Test-only. A throw here fails the cache purge after the manifest commit. */
+let releasePurgeFailureForTests: (() => void) | null = null;
+export function setReleasePurgeFailureForTests(hook: (() => void) | null): void {
+  releasePurgeFailureForTests = hook;
 }
 
 function sameKeySet(left: readonly string[], right: readonly string[]): boolean {
@@ -795,6 +803,7 @@ async function manifestCardIds(manifestId: string): Promise<string[]> {
  * Called only after the manifest write commits.
  */
 async function purgeExpansionReleaseCaches(setId: string, cardIds: readonly string[]): Promise<void> {
+  releasePurgeFailureForTests?.();
   const { invalidatePublicMaskSetCache } = await import("../publicMaskGate");
   const { purgeCoverCacheForCards } = await import("../setCovers");
   invalidatePublicMaskSetCache(setId);
@@ -854,12 +863,20 @@ export async function replaceExpansionRelease(input: {
         eq(expansionReleaseManifests.setId, input.setId),
       )).for("update").limit(1);
       const currentKeys = await tx.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers).where(eq(expansionReleaseMembers.manifestId, active.id));
+      const activeKeyList = currentKeys.map((row) => row.memberKey);
       const replay = !!expected?.revokedAt
         && active.version === input.version
         && active.discoveryMembershipSha256 === input.discoveryMembershipSha256
         && active.releasedMembershipSha256 === releasedMembershipSha256
-        && sameKeySet(currentKeys.map((row) => row.memberKey), unique);
+        && sameKeySet(activeKeyList, unique);
       if (replay) {
+        const previousKeys = await tx.select({ memberKey: expansionReleaseMembers.memberKey }).from(expansionReleaseMembers).where(eq(expansionReleaseMembers.manifestId, expected!.id));
+        const activeKeySet = new Set(activeKeyList);
+        const droppedKeys = previousKeys.map((row) => row.memberKey).filter((key) => !activeKeySet.has(key));
+        if (droppedKeys.length > 0) {
+          const idRows = await tx.select({ id: discoveryCohortMembers.playableCardId }).from(discoveryCohortMembers).where(inArray(discoveryCohortMembers.memberKey, droppedKeys));
+          purgedCardIds = idRows.flatMap((row) => row.id ? [row.id] : []);
+        }
         return {
           ok: true, unchanged: true, manifestId: active.id, version: active.version,
           memberCount: active.memberCount, releasedMembershipSha256: active.releasedMembershipSha256,
@@ -994,6 +1011,11 @@ export async function replaceExpansionRelease(input: {
     });
     return outcome;
   }
-  await purgeExpansionReleaseCaches(input.setId, purgedCardIds);
+  try {
+    await purgeExpansionReleaseCaches(input.setId, purgedCardIds);
+  } catch (error) {
+    console.error(`[ExpansionRelease] cache purge incomplete set=${input.setId}`, error instanceof Error ? error.message : error);
+    return { ...outcome, purgeIncomplete: true };
+  }
   return outcome;
 }
