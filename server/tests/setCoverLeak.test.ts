@@ -82,6 +82,14 @@ beforeAll(async () => {
   await writeReady(unplayableId, unplayableBytes);
   await writeReady(montanaId, montanaBytes);
   await writeReady(cunninghamId, cunninghamBytes);
+  const band = JSON.stringify({
+    layoutClass: "BOTTOM_PLAQUE",
+    regions: [{ xPct: 0, yPct: 54, wPct: 100, hPct: 46, type: "solid" }],
+    maskVersion: CURRENT_MASK_VERSION,
+  });
+  for (const id of [paytonId, kellyId, benchId]) {
+    await writeFile(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.json`), band);
+  }
   clearReadyCoverIndexForTests();
   setPinnedCoversForTests(setId, [montanaId, cunninghamId]);
 
@@ -210,7 +218,7 @@ describe("GET /api/sets cover leak", () => {
     expect(await missing.text()).not.toContain(paytonId);
     expect(Date.now() - started).toBeLessThan(3000);
     expect(readdirSync(dir).sort()).toEqual(before);
-    expect(before.some((name) => name.startsWith(paytonId))).toBe(false);
-    expect(before.some((name) => name.startsWith(kellyId))).toBe(false);
+    expect(before.some((name) => name.startsWith(paytonId) && name.endsWith(".jpg"))).toBe(false);
+    expect(before.some((name) => name.startsWith(kellyId) && name.endsWith(".jpg"))).toBe(false);
   });
 });

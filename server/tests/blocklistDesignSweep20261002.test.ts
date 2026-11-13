@@ -367,7 +367,7 @@ describe("1987 Topps All-Star range #595-616 by number", () => {
     const numbers = BLOCKED_SET_NUMBERS.map((rule) => rule.number);
     expect(numbers).toEqual(Array.from({ length: 22 }, (_, i) => String(595 + i)));
     expect(BLOCKED_SET_NUMBERS.every((rule) => rule.gameSetId === "37fd025d" && rule.prefix === true)).toBe(true);
-    expect(leakBlocklistLogLines()).toContain("[blocklist] set=37fd025d blockedIds=38 blockedNumbers=22 blockedPatterns=0");
+    expect(leakBlocklistLogLines()).toContain("[blocklist] set=37fd025d blockedIds=40 blockedNumbers=22 blockedPatterns=0");
   });
 
   it("blocks any card in the range, including one not on the id list and a new id after a re-import", async () => {

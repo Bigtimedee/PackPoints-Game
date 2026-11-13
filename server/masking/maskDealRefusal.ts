@@ -5,8 +5,10 @@
  * `blocked_reason` to one of MASK_DEAL_BLOCK_REASONS. `eligibleDealFilter`
  * and Daily 5 `selectCardsForChallenge` both go through `maskNameStillCovered`,
  * which excludes those reasons and those fail-sidecar ids. Refresh uses
- * `refusedAtCurrentMask` so it cannot clear that state. A later bake that
- * deletes the sidecar and clears the reason is what makes the card dealable.
+ * `refusedAtCurrentMask` so it cannot clear that state. Deleting the sidecar
+ * does not make the card dealable. A successful bake, or a mask plan with a
+ * band placement, does. An active expansion release member is witnessed by
+ * its manifest.
  */
 import { sql, type SQL } from "drizzle-orm";
 import { currentMaskRefusalIds, readMaskFailureReason } from "./maskReadySidecar";

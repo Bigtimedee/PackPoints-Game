@@ -77,8 +77,10 @@ describe("GET /api/sets covers switch", () => {
     restoreClearance = await releaseSetsForTests([setId]);
     dir = await mkdtemp(path.join(tmpdir(), "packpts-covers-off-"));
     setMaskReadySidecarDirForTests(dir);
-    await writeFile(path.join(dir, warmOkMarkerFilename(readyId)), "ok\n");
-    await writeFile(path.join(dir, `${readyId}_${CURRENT_MASK_VERSION}.jpg`), jpeg);
+    for (const id of cardIds) {
+      await writeFile(path.join(dir, warmOkMarkerFilename(id)), "ok\n");
+      await writeFile(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.jpg`), jpeg);
+    }
     clearReadyCoverIndexForTests();
     setPinnedCoversForTests(setId, [readyId]);
 

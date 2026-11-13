@@ -175,6 +175,14 @@ describe("dealable QA routes", () => {
       regions: [{ xPct: 0, yPct: 0, wPct: 100, hPct: 20, type: "solid" }],
       maskVersion: CURRENT_MASK_VERSION,
     }));
+    const bandPlan = JSON.stringify({
+      layoutClass: "BOTTOM_PLAQUE",
+      regions: [{ xPct: 0, yPct: 54, wPct: 100, hPct: 46, type: "solid" }],
+      maskVersion: CURRENT_MASK_VERSION,
+    });
+    for (const id of [coldId, timeoutId, badNameId, hoopOkId]) {
+      await writeFile(path.join(dir, warmMaskPlanFilename(id)), bandPlan);
+    }
     const blockedBody = Buffer.from(`masked-secret-${blockedNameId}`);
     await writeFile(path.join(dir, warmOkMarkerFilename(blockedNameId)), "ok\n");
     await writeFile(path.join(dir, `${blockedNameId}_${CURRENT_MASK_VERSION}.jpg`), blockedBody);
@@ -287,7 +295,7 @@ describe("dealable QA routes", () => {
       .where(and(eq(playableCards.gameSetId, setId), eligibleDealFilter("playable_cards")))
       .orderBy(asc(playableCards.number), asc(playableCards.id));
     const expectedIds = expected.map((row) => row.id);
-    expect(expectedIds).toEqual([bakedId, tieLowId, tieHighId, badNameId, coldId, timeoutId, nullNumberId]);
+    expect(expectedIds).toEqual([bakedId, badNameId, coldId, timeoutId]);
     for (const id of blockedIds) expect(expectedIds).not.toContain(id);
 
     const first = await fetch(`${base}/api/qa/sets/${setId}/dealable-cards?offset=0&limit=2`, { headers: headers() });
@@ -326,13 +334,16 @@ describe("dealable QA routes", () => {
       baked: true,
     });
     expect(page.cards[1]).toMatchObject({
-      cardId: tieLowId,
-      player: "QA Deal A",
-      number: "13",
-      variant: "All-Star",
-      bandPlacement: null,
+      cardId: badNameId,
+      player: "QA Deal Bad",
+      number: "14",
+      variant: null,
+      bandPlacement: "BOTTOM_PLAQUE",
       baked: false,
     });
+    expect(expectedIds).not.toContain(tieLowId);
+    expect(expectedIds).not.toContain(tieHighId);
+    expect(expectedIds).not.toContain(nullNumberId);
     expect(JSON.stringify(page)).not.toContain("Kevin Johnson");
     expect(JSON.stringify(page)).not.toContain("Antetokounmpo");
     expect(JSON.stringify(page)).not.toContain("Surname Leak");
