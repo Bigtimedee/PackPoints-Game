@@ -424,6 +424,9 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "4914a815-0ad6-4ef5-8307-9321b4f2c011", number: "650", surname: "brooks", variant: "base", reason: "Jersey back reads BROOKS above the #7" },
   { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "f23d2f7a-00c6-430c-b7e7-1933dc211123", number: "739", surname: "lemon", variant: "base", reason: "Jersey back reads" },
   { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "5b4b7ebf-2474-4a5e-9927-be2d81e07c3c", number: "789", surname: "schatzeder", variant: "base", reason: "Whole card masked" },
+  // Nov 13 2026: fail-sidecar exclusion cleared with no bake, no mask plan, and no band placement. Not Design-cleared.
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "14b0bd34-fd99-4899-85c2-64d03a82f9af", number: "294", surname: "jeltz", variant: "base", reason: "No bake, no mask plan, and no band placement" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "4b6f8f60-aaad-43f0-a364-09efd085e6a4", number: "99", surname: "motley", variant: "base", reason: "No bake, no mask plan, and no band placement" },
 
   // 2022 Panini Chronicles Football, Design full-pool sweep 2026-10-02 (12)
   { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "8a7ea95e-c625-487b-ae32-5b55254fbb44", number: "8", surname: "watson", variant: "base", reason: "SGC slab label at top fully legible: #8 DESHAUN WATSON" },

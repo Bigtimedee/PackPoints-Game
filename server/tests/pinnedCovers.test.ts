@@ -80,6 +80,11 @@ describe("pinned set covers", () => {
     for (const id of [alphaId, bravoId, blockedId, ineligibleId, dupId, foreignId, spareId, bandId]) {
       await bake(id);
     }
+    await writeFile(path.join(dir, `${unbakedId}_${CURRENT_MASK_VERSION}.json`), JSON.stringify({
+      layoutClass: "BOTTOM_PLAQUE",
+      regions: [{ xPct: 0, yPct: 54, wPct: 100, hPct: 46, type: "solid" }],
+      maskVersion: CURRENT_MASK_VERSION,
+    }));
     writeMaskFailureSidecar(bandId, MASK_BAND_OVERSIZED, dir);
     clearReadyCoverIndexForTests();
     clearMaskBandCacheForTests();

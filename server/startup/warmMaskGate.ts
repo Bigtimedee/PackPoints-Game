@@ -160,7 +160,8 @@ export async function tryServeWarmMasked(req: Request, res: Response): Promise<b
     return true;
   }
   try {
-    if (await rejectPublicMask(req, res, cardId)) return true;
+    const { isSchemaReady } = await import("./schemaGate");
+    if (await rejectPublicMask(req, res, cardId, { skipDealEligibility: !isSchemaReady() })) return true;
   } catch {
     denyPublicMask(req, res);
     return true;

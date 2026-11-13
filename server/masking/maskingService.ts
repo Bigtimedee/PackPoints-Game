@@ -759,23 +759,6 @@ export async function bakeMaskedCardFromUrl(
       });
       const priorFail = readMaskFailureReason(cardId);
       if (input.deferNameVisibility && priorFail) return null;
-      if (!input.deferNameVisibility && priorFail && priorFail !== NAME_VISIBLE_OUTSIDE_MASK) {
-        clearMaskFailureSidecar(cardId);
-        await db
-          .update(playableCards)
-          .set({
-            isPlayable: true,
-            blockedReason: null,
-            quarantineStatus: "OK",
-            imageReviewStatus: "unreviewed",
-            lastValidationReason: null,
-            updatedAt: new Date(),
-          })
-          .where(and(
-            eq(playableCards.id, cardId),
-            eq(playableCards.blockedReason, "mask_name_uncovered"),
-          ));
-      }
       for (const deg of [0, 90, 180, 270] as const) {
         if (deg === rotation) continue;
         try {
@@ -811,6 +794,26 @@ export async function bakeMaskedCardFromUrl(
             updatedAt: new Date(),
           },
         });
+
+      // The fail sidecar stays until the plan row exists. Clearing it first
+      // admitted a card that had no mask plan and no band placement.
+      if (!input.deferNameVisibility && priorFail && priorFail !== NAME_VISIBLE_OUTSIDE_MASK) {
+        clearMaskFailureSidecar(cardId);
+        await db
+          .update(playableCards)
+          .set({
+            isPlayable: true,
+            blockedReason: null,
+            quarantineStatus: "OK",
+            imageReviewStatus: "unreviewed",
+            lastValidationReason: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(playableCards.id, cardId),
+            eq(playableCards.blockedReason, "mask_name_uncovered"),
+          ));
+      }
 
       console.log(`[MaskingService] Generated masked image for card ${cardId}`, {
         ocrApplied: result.ocrApplied,

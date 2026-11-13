@@ -5,12 +5,13 @@
  * the hold list changes. The card row and the fail sidecar are read every time.
  */
 import type { Request, Response } from "express";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { holdReasonForIdentity } from "../config/heldSets";
 import { expansionSetIsCleared } from "../services/baseballExpansion/perCardRelease";
 import { refusedAtCurrentMask } from "../masking/maskDealRefusal";
+import { eligibleDealFilter } from "./playableSetEligibility";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 
 /** Short private lifetime so a browser cannot keep a revoked bake for a day. */
@@ -85,7 +86,7 @@ async function setGate(setId: string): Promise<SetGate> {
  */
 export async function publicMaskDenyReason(
   cardId: string,
-  opts?: { allowHeld?: boolean },
+  opts?: { allowHeld?: boolean; skipDealEligibility?: boolean },
 ): Promise<PublicMaskDeny | null> {
   if (!cardId || cardId.length > 100 || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
     return "missing";
@@ -111,6 +112,17 @@ export async function publicMaskDenyReason(
     const gate = await setGate(card.gameSetId);
     if (!gate.exists) return "missing";
     if (gate.held && !opts?.allowHeld) return "held";
+    if (!opts?.skipDealEligibility) {
+      const [eligible] = await db
+        .select({ id: playableCards.id })
+        .from(playableCards)
+        .where(and(
+          eq(playableCards.id, cardId),
+          eligibleDealFilter("playable_cards", { ignoreHeldSets: true }),
+        ))
+        .limit(1);
+      if (!eligible) return "refused";
+    }
     return null;
   } catch (error) {
     console.error("[MaskGate] lookup failed", error instanceof Error ? error.message : error);
@@ -142,7 +154,7 @@ export async function rejectPublicMask(
   req: Request,
   res: Response,
   cardId: string,
-  opts?: { allowHeld?: boolean },
+  opts?: { allowHeld?: boolean; skipDealEligibility?: boolean },
 ): Promise<boolean> {
   const deny = await publicMaskDenyReason(cardId, opts);
   if (!deny) return false;

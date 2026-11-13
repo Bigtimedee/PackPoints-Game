@@ -3,7 +3,7 @@
  * Card pool refresh must not flip it playable. A stored future Daily 5 hand
  * swaps it. A card with no fail sidecar stays dealable.
  */
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -19,7 +19,9 @@ import {
   writeMaskFailureSidecar,
 } from "../masking/maskReadySidecar";
 import { cardPoolRefreshCandidateFilter, restorePlayableIfMaskAllows } from "../services/cardPoolRefresh";
+import { resetDealWitnessCacheForTests } from "../masking/dealWitness";
 import { eligibleDealFilter } from "../services/playableSetEligibility";
+import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
 const stamp = randomUUID().slice(0, 8);
 const setId = randomUUID();
@@ -93,6 +95,11 @@ beforeAll(async () => {
     row(spareId, "Spare Hand", true, null),
   ]);
   writeMaskFailureSidecar(refusedId, "name_plate_unresolved", dir);
+  for (const id of [bakedId, spareId]) {
+    await writeFile(path.join(dir, warmOkMarkerFilename(id)), "ok\n");
+    await writeFile(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from(`masked-${id}`));
+  }
+  resetDealWitnessCacheForTests();
 });
 
 afterAll(async () => {
@@ -250,6 +257,15 @@ describe("current mask refusal stays non-dealable", () => {
       blockedReason: null,
       quarantineStatus: "OK",
     }).where(eq(playableCards.id, refusedId));
+    resetDealWitnessCacheForTests();
+
+    const cleared = await dealableIds();
+    expect(cleared).toContain(bakedId);
+    expect(cleared).not.toContain(refusedId);
+
+    await writeFile(path.join(dir, warmOkMarkerFilename(refusedId)), "ok\n");
+    await writeFile(path.join(dir, `${refusedId}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from(`masked-${refusedId}`));
+    resetDealWitnessCacheForTests();
 
     const after = await dealableIds();
     expect(after).toContain(bakedId);

@@ -11,6 +11,7 @@ import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { cardNotBlockedSql, type BlocklistSqlOpts } from "../lib/cardBlocklist";
+import { dealWitnessSql } from "../masking/dealWitness";
 import { maskRefusalStillClearSql, refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { subsetStillUnverified } from "../masking/subsetQuarantine";
 
@@ -33,6 +34,9 @@ type CardAlias = "pc" | "playable_cards";
  * guard sets mask_band_oversized or mask_band_misplaced.
  * Deals exclude those reasons, and every current-version fail sidecar, so a
  * card cannot slip back in while is_playable is flipped true.
+ * A cleared fail sidecar is not a bake. dealWitnessSql also requires a
+ * successful current-version bake or a mask plan whose layoutClass is the
+ * band placement, unless the card is on an active expansion release manifest.
  * Report mode does not write the band reasons.
  */
 export function maskNameStillCovered(alias: CardAlias): SQL {
@@ -68,6 +72,7 @@ export function eligibleDealFilter(alias: CardAlias, opts?: BlocklistSqlOpts, ig
     AND ${cardNotBlockedSql(alias, opts)}
     AND ${subsetStillUnverified(alias)}
     AND ${expansionReleaseDealSql(alias)}
+    AND ${dealWitnessSql(alias)}
   `;
 }
 

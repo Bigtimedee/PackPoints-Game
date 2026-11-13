@@ -18,6 +18,7 @@ import { dailyChallengeCards, dailyChallenges, gameSessionsTable, gameSets, play
 import { db } from "../db";
 import { storage } from "../storage";
 import { daily5Service } from "../services/daily5Service";
+import { resetDealWitnessCacheForTests } from "../masking/dealWitness";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
@@ -270,7 +271,7 @@ describe("isBlockedCard", () => {
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=aea515e2") && line.includes("allStarNumbers=1,2,3,4,5,6,7,8,9,10,11"))).toBe(true);
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=37fd025d") && line.includes("mcgwireNumber=366"))).toBe(true);
     expect(leakBlocklistLogLines()).toEqual([
-      "[blocklist] set=37fd025d blockedIds=38 blockedNumbers=22 blockedPatterns=0",
+      "[blocklist] set=37fd025d blockedIds=40 blockedNumbers=22 blockedPatterns=0",
       "[blocklist] set=352b33d1 blockedIds=22 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=91cfdf3f blockedIds=1 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=a09b2fe7 blockedIds=8 blockedNumbers=0 blockedPatterns=0",
@@ -392,12 +393,16 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     const fleerOnly = [card(fleerOnlySetId, "Kevin Johnson", "2020-01-01T00:00:00.000Z", "basketball")];
     fleerOnlyId = fleerOnly[0].id;
 
+    async function bake(id: string, body = Buffer.from(`masked-${id}`)) {
+      await writeFile(path.join(dir, warmOkMarkerFilename(id)), "ok\n");
+      await writeFile(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.jpg`), body);
+    }
     for (const row of footballCards) {
       const body = Buffer.from(`masked-${row.player}-${row.id}`);
       bytes.set(row.id, body);
-      await writeFile(path.join(dir, warmOkMarkerFilename(row.id)), "ok\n");
-      await writeFile(path.join(dir, `${row.id}_${CURRENT_MASK_VERSION}.jpg`), body);
+      await bake(row.id, body);
     }
+    for (const row of [...basketball, ...fleer, ...fleerOnly]) await bake(row.id);
     artBytes = bytes.get(footballCards[2].id)!;
     lastBytes = bytes.get(footballCards[footballCards.length - 1].id)!;
     clearReadyCoverIndexForTests();
@@ -462,6 +467,12 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     });
     await db.delete(playableCards).where(eq(playableCards.id, schmidtId));
     await db.insert(playableCards).values(rows);
+    for (const row of rows) {
+      if (!row.keep) continue;
+      await writeFile(path.join(dir, warmOkMarkerFilename(row.id)), "ok\n");
+      await writeFile(path.join(dir, `${row.id}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from(`masked-${row.id}`));
+    }
+    resetDealWitnessCacheForTests();
     try {
       const kept = await db
         .select({ id: playableCards.id })
@@ -642,6 +653,10 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     ];
     await db.delete(playableCards).where(eq(playableCards.id, TOPPS_1987_SCHMIDT_CARD_ID));
     await db.insert(playableCards).values(inserted);
+    for (const row of [...fillers, number28, schmidt430]) {
+      await writeFile(path.join(dir, warmOkMarkerFilename(row.id)), "ok\n");
+      await writeFile(path.join(dir, `${row.id}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from(`masked-${row.id}`));
+    }
 
     const [hoop] = await db.insert(dailyChallenges).values({
       date: "2099-11-20",

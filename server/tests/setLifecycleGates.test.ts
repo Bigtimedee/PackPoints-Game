@@ -6,7 +6,7 @@ const f=vi.hoisted(()=>({ready:[] as string[],managed:false,allowed:false}));
 vi.mock('../services/setLifecycle',()=>({managedReadyIds:()=>f.ready,lifecycleCardAllowed:async()=>f.allowed}));
 vi.mock('../db',()=>({db:{select:()=>({from:(table:any)=>({where:()=>({limit:async()=>getTableName(table)==='playable_cards'?[{id:'card',gameSetId:'set',blockedReason:null,lifecycleManaged:f.managed}]:[{id:'set',year:2026,brand:'Fixture',sport:'baseball',setName:'Fixture',isActive:true,isUserCreated:false}]})})})}}));
 vi.mock('../config/heldSets',()=>({holdReasonForIdentity:()=>null}));
-vi.mock('../masking/maskDealRefusal',()=>({refusedAtCurrentMask:()=>false,maskRefusalStillClearSql:()=>{throw new Error('not called');}}));
+vi.mock('../masking/maskDealRefusal',async()=>{const {sql}=await import('drizzle-orm');return {refusedAtCurrentMask:()=>false,maskRefusalStillClearSql:()=>sql`true`};});
 import { managedSetCardReadySql } from '../services/playableSetEligibility';
 import { publicMaskDenyReason,resetPublicMaskSetCacheForTests } from '../services/publicMaskGate';
 let pg:PGlite;
