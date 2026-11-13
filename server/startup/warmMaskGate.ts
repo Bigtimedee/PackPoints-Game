@@ -22,6 +22,11 @@ export function setWarmMaskDirForTests(dir: string | null): void {
   cardIdsByDir.clear();
 }
 
+/** Drop the directory listing so a purged Daily 5 mask is not still a warm hit. */
+export function invalidateWarmMaskIndex(): void {
+  cardIdsByDir.clear();
+}
+
 export function cardIdFromWarmJpeg(filename: string): string | null {
   const id = filename.match(WARM_JPEG)?.[1];
   if (!id || id.includes("/") || id.includes("..")) return null;

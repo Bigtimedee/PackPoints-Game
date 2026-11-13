@@ -743,6 +743,24 @@ function plaqueSecret(): string {
 }
 const plaqueCache = new Map<string, string[]>();
 
+/** Drop cover id, byte, and plaque entries for cards that just left a release. */
+export function purgeCoverCacheForCards(setId: string, cardIds: readonly string[]): void {
+  invalidateReleasedCoverCache(setId);
+  if (cardIds.length === 0) return;
+  readyIndex = null;
+  const ids = cardIds.filter((id) => id.length > 0);
+  for (const key of coverBytes.keys()) {
+    if (ids.some((id) => key.includes(id))) coverBytes.delete(key);
+  }
+  for (const key of coverVariants.keys()) {
+    if (ids.some((id) => key.includes(id))) coverVariants.delete(key);
+  }
+  for (const key of plaqueCache.keys()) {
+    const cardId = key.slice(key.lastIndexOf("|") + 1);
+    if (ids.includes(cardId)) plaqueCache.delete(key);
+  }
+}
+
 /** Rank key: HMAC of the day seed and a label. Same inputs, same order, every call. */
 function plaqueRank(seed: string, label: string): string {
   return createHmac("sha256", seed).update(label).digest("hex");
