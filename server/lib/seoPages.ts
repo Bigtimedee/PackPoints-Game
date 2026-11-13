@@ -11,6 +11,7 @@
  * renders every page and fails on any live-pool or blocked-pool surname.
  */
 import { HOME_HERO_COVER_PATH } from "@shared/homeHeroCover";
+import { expansionTargetById } from "../services/baseballExpansion/registry";
 import { isKnownSpaRoute } from "@shared/spaRoutes";
 import { isMaskedSetCoverUrl, setCoverSrcSet, setCoverVariantUrl, SET_COVER_SIZES } from "@shared/setCoverUrl";
 
@@ -314,9 +315,12 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
     }
     if (!set) return NOT_FOUND_PAGE;
     // A renamed set's old slug (shared on X) 301s to the live slug. Bare ids stay 200 (in-app links).
+    // A released expansion registry slug (1986-fleer-baseball) is also 200.
     const ref = decodeURIComponent(m[1]).toLowerCase();
     const isId = /^[0-9a-f]{8}(-?[0-9a-f]{4}){3}-?[0-9a-f]{12}$/.test(ref);
-    if (!isId && ref !== set.slug) return redirect(`/sets/${set.slug}`);
+    const target = expansionTargetById(set.id);
+    const registrySlug = target?.role === "missing" ? target.slug : null;
+    if (!isId && ref !== set.slug && ref !== registrySlug) return redirect(`/sets/${set.slug}`);
     const kit = KIT_SET_BY_ID.get(String(set.id));
     return kit ? kitPage(kit, set.cardCount, `/sets/${set.slug}`) : setPage(set, sets);
   }
