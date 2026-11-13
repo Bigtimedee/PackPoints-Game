@@ -276,9 +276,10 @@ describe("released expansion sets in Daily 5", () => {
     expect(scheduledDaily5Set("2026-11-10", daily5ConfigForDate("2026-11-10", base, rotation))!.setId)
       .toBe(scheduledDaily5Set("2026-11-10", base)!.setId);
     const later = daily5ConfigForDate("2026-11-17", base, rotation);
-    expect(later.greenSetIds.slice(0, base.greenSetIds.length)).toEqual(base.greenSetIds);
-    expect(later.greenSetIds).toContain(SET);
+    expect(later.greenSetIds).toEqual(base.greenSetIds);
+    expect(later.rotationSetIds).toContain(SET);
     expect(scheduledDaily5Set("2026-11-16", later)!.setId).toBe(base.greenSetIds[0]);
+    expect(later.rotationSetIds).toContain(scheduledDaily5Set("2026-11-17", later)!.setId);
 
     expect(await releasedExpansionIdForSlug(SLUG)).toBe(SET);
     expect(await releasedExpansionIdForSlug("1991-upper-deck-baseball")).toBeNull();

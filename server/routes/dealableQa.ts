@@ -20,9 +20,11 @@ import {
 } from "../services/dealableQa";
 import { eligibleCoverFile } from "../services/setCovers";
 import { addPackptsDays, getPackptsDayKey, isPackptsDayKey, PACKPTS_DAY_TZ } from "@shared/packptsDay";
+import { releasedExpansionRotationIds } from "../services/baseballExpansion/daily5Enrollment";
 import {
   DAILY5_CALENDAR_START,
   daily5CalendarConfig,
+  daily5ConfigForDate,
   daily5Weekday,
   scheduledDaily5Set,
   WEEKDAYS,
@@ -103,10 +105,11 @@ export function registerDealableQaRoutes(app: Express): void {
     }
     void (async () => {
       const config = daily5CalendarConfig();
+      const releasedIds = await releasedExpansionRotationIds();
       const out = [];
       for (let i = 0; i < days; i++) {
         const date = addPackptsDays(start, i);
-        const scheduled = scheduledDaily5Set(date, config);
+        const scheduled = scheduledDaily5Set(date, daily5ConfigForDate(date, config, releasedIds));
         const preview = await daily5Service.previewDeal(date);
         out.push({
           date,

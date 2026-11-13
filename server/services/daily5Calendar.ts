@@ -17,14 +17,19 @@
  * slot is a fallback day. So with the 3 default sets the week is
  *   Mon 0, Tue fallback, Wed 1, Thu fallback, Fri 2, Sat 0, Sun fallback
  * and appending ids to DAILY5_GREEN_SET_IDS only turns fallback days
- * (Tue, Thu, Sun) GREEN; it never moves an existing GREEN day. With 8 or
+ * (Tue, Thu, Sun) GREEN; it never moves an existing GREEN day. With 7 or
  * more ids each week shifts by 7 slots so every set still gets days.
  * No GREEN set lands on two days in a row, including Sun -> Mon.
  *
+ * Released expansion ids are a separate rotation. They are not appended
+ * to the GREEN list, so a list shorter than 7 stays on this template.
+ * From DAILY5_RELEASED_EXPANSION_START, a weekday with no template slot
+ * takes rotation[(k + open*week) % rotation.length], where open is that
+ * week's open weekdays in order and k is this day's index in that list.
+ * An empty rotation leaves the fallback set. Earlier days ignore it.
+ *
  * Runtime exclusion (held set, inactive set, too few dealable cards) is
- * applied by resolveDaily5SetForDate, not here. That resolver may append
- * released expansion ids from DAILY5_RELEASED_EXPANSION_START onward.
- * Days before that date ignore the extra ids.
+ * applied by resolveDaily5SetForDate, not here.
  */
 import { isPackptsDayKey } from "@shared/packptsDay";
 
@@ -55,6 +60,8 @@ export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as con
 export interface Daily5CalendarConfig {
   greenSetIds: string[];
   fallbackSetId: string;
+  /** Released expansion ids for weekdays the green template leaves open. */
+  rotationSetIds?: readonly string[];
 }
 
 type Env = Record<string, string | undefined>;
@@ -85,9 +92,9 @@ export function daily5CalendarConfig(env: Env = process.env): Daily5CalendarConf
 }
 
 /**
- * Append released expansion ids after the configured green list, on and after
- * DAILY5_RELEASED_EXPANSION_START only. Existing green slots stay put.
- * Before that day, and when the list is empty, the config is unchanged.
+ * Keep the configured green list. On and after DAILY5_RELEASED_EXPANSION_START,
+ * released expansion ids are rotationSetIds, in the order given. They do not
+ * change greenCount. Before that day, and when none are new, the config is unchanged.
  */
 export function daily5ConfigForDate(
   dayKey: string,
@@ -95,14 +102,14 @@ export function daily5ConfigForDate(
   releasedExpansionIds: readonly string[] = [],
 ): Daily5CalendarConfig {
   if (releasedExpansionIds.length === 0 || dayKey < DAILY5_RELEASED_EXPANSION_START) return config;
-  const green = [...config.greenSetIds];
+  const rotation: string[] = [];
   for (const raw of releasedExpansionIds) {
     const id = normalizeId(raw);
-    if (!id || id === config.fallbackSetId || green.includes(id)) continue;
-    green.push(id);
+    if (!id || id === config.fallbackSetId || config.greenSetIds.includes(id) || rotation.includes(id)) continue;
+    rotation.push(id);
   }
-  if (green.length === config.greenSetIds.length) return config;
-  return { greenSetIds: green, fallbackSetId: config.fallbackSetId };
+  if (rotation.length === 0) return config;
+  return { greenSetIds: config.greenSetIds, fallbackSetId: config.fallbackSetId, rotationSetIds: rotation };
 }
 
 function dayNumber(dayKey: string): number {
@@ -152,9 +159,26 @@ export function scheduledDaily5Set(
   const weekday = WEEKDAYS[weekdayIndex];
   const green = config.greenSetIds;
   const week = Math.floor(offset / 7);
-  const index = daily5WeeklyTemplate(green.length, week)[weekdayIndex];
-  if (index == null) {
-    return { date: dayKey, weekday, setId: config.fallbackSetId, slot: "fallback" };
+  const template = daily5WeeklyTemplate(green.length, week);
+  const index = template[weekdayIndex];
+  if (index != null) {
+    return { date: dayKey, weekday, setId: green[index], slot: "green" };
   }
-  return { date: dayKey, weekday, setId: green[index], slot: "green" };
+  const rotation = config.rotationSetIds ?? [];
+  if (rotation.length > 0) {
+    const free: number[] = [];
+    for (let i = 0; i < template.length; i++) {
+      if (template[i] == null) free.push(i);
+    }
+    const k = free.indexOf(weekdayIndex);
+    if (k >= 0) {
+      return {
+        date: dayKey,
+        weekday,
+        setId: rotation[(k + free.length * week) % rotation.length],
+        slot: "green",
+      };
+    }
+  }
+  return { date: dayKey, weekday, setId: config.fallbackSetId, slot: "fallback" };
 }
