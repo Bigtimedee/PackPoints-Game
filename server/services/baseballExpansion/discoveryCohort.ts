@@ -19,7 +19,7 @@ import {
   playableCards,
 } from "@shared/schema";
 import { db } from "../../db";
-import { fetchImportImage, isApprovedSupplierImageHost, isPrivateAddress } from "../images/approvedImageFetch";
+import { fetchImportImage, isApprovedSupplierImageHost, isExactSupplierPointerHost, isPrivateAddress } from "../images/approvedImageFetch";
 import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "../cards/imageQuality";
 
 export { fetchImportImage };
@@ -454,7 +454,7 @@ export function supplierImagePointer(value: string): string | null {
   try { parsed = new URL(value); } catch { return null; }
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
   const host = parsed.hostname.toLowerCase();
-  if (!isApprovedSupplierImageHost(host) || isPrivateAddress(host)) return null;
+  if (!(isApprovedSupplierImageHost(host) || isExactSupplierPointerHost(host)) || isPrivateAddress(host)) return null;
   if (value.length > 500 || /\s/.test(value)) return null;
   return parsed.toString();
 }
