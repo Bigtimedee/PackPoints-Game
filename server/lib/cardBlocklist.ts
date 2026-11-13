@@ -6,8 +6,8 @@
  * 1987 Topps Football Record Breakers are also blocked by normalized card number
  * and by Record Breaker text on player, variant, or description, same set id.
  */
-import { and, asc, eq, gte, notInArray, sql, type SQL } from "drizzle-orm";
-import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/schema";
+import { and, asc, eq, gte, inArray, isNull, notInArray, sql, type SQL } from "drizzle-orm";
+import { dailyChallengeCards, dailyChallenges, discoveryCohortMembers, discoveryCohorts, expansionReleaseManifests, expansionReleaseMembers, playableCards } from "@shared/schema";
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
 import { db } from "../db";
@@ -1099,10 +1099,37 @@ function cardUnservable(row: {
 }
 
 /**
+ * Cards in a discovery cohort that are not on the active release manifest.
+ * A live set has no cohort, so this does not change it. A revoked manifest
+ * drops every card in that set. A read error fails closed by throwing.
+ */
+async function expansionReleaseDroppedIds(rows: { cardId: string; gameSetId: string | null }[]): Promise<Set<string>> {
+  const ids = [...new Set(rows.map((row) => row.cardId).filter(Boolean))];
+  const setIds = [...new Set(rows.map((row) => row.gameSetId).filter((id): id is string => !!id))];
+  if (ids.length === 0 || setIds.length === 0) return new Set();
+  const cohorts = await db.select({ setId: discoveryCohorts.setId }).from(discoveryCohorts).where(inArray(discoveryCohorts.setId, setIds));
+  if (cohorts.length === 0) return new Set();
+  const cohortIds = new Set(cohorts.map((row) => row.setId));
+  const released = await db.select({ id: discoveryCohortMembers.playableCardId }).from(expansionReleaseMembers)
+    .innerJoin(expansionReleaseManifests, eq(expansionReleaseManifests.id, expansionReleaseMembers.manifestId))
+    .innerJoin(discoveryCohortMembers, eq(discoveryCohortMembers.memberKey, expansionReleaseMembers.memberKey))
+    .where(and(
+      isNull(expansionReleaseManifests.revokedAt),
+      inArray(discoveryCohortMembers.playableCardId, ids),
+    ));
+  const live = new Set(released.flatMap((row) => row.id ? [row.id] : []));
+  const dropped = new Set<string>();
+  for (const row of rows) {
+    if (row.gameSetId && cohortIds.has(row.gameSetId) && !live.has(row.cardId)) dropped.add(row.cardId);
+  }
+  return dropped;
+}
+
+/**
  * A stored Daily 5 hand for today or a later date. A blocked, oversized-band,
- * or current-mask-version refused card is rewritten to the next eligible card
- * in the set before the client sees it. A past date is left alone. Returns
- * how many unservable cards remain.
+ * current-mask-version refused, or off-manifest expansion card is rewritten
+ * to the next eligible card in the set before the client sees it. A past
+ * date is left alone. Returns how many unservable cards remain.
  */
 export async function replaceBlockedDaily5Cards(challengeId: string, today = getPackptsDayKey()): Promise<number> {
   const [challenge] = await db
@@ -1131,7 +1158,8 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     .where(eq(dailyChallengeCards.dailyChallengeId, challengeId))
     .orderBy(asc(dailyChallengeCards.position));
 
-  const blocked = rows.filter((row) => cardUnservable(row));
+  const manifestDropped = await expansionReleaseDroppedIds(rows);
+  const blocked = rows.filter((row) => cardUnservable(row) || manifestDropped.has(row.cardId));
   if (blocked.length === 0) return 0;
 
   const { eligibleDealFilter } = await import("../services/playableSetEligibility");
@@ -1171,7 +1199,9 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
       .where(and(eq(dailyChallengeCards.id, row.id), eq(dailyChallengeCards.cardId, row.cardId)));
     used.add(next.id);
     const maskRefusal = refusedAtCurrentMask({ id: row.cardId, blockedReason: row.blockedReason });
-    if (maskRefusal) {
+    if (manifestDropped.has(row.cardId) && !cardUnservable(row)) {
+      console.log(`[Daily5] release manifest swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id}`);
+    } else if (maskRefusal) {
       console.log(`[Daily5] mask refusal swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id} reason=${maskRefusal}`);
     } else {
       console.log(`[Daily5] blocklist swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id}`);
@@ -1191,7 +1221,8 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     .from(dailyChallengeCards)
     .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
     .where(eq(dailyChallengeCards.dailyChallengeId, challengeId));
-  return left.filter((row) => cardUnservable(row)).length;
+  const stillDropped = await expansionReleaseDroppedIds(left);
+  return left.filter((row) => cardUnservable(row) || stillDropped.has(row.cardId)).length;
 }
 
 /**

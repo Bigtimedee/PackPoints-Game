@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "crypto";
 import { afterAll, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import { db } from "../db";
 import {
   cardReviewApprovals,
@@ -21,6 +21,7 @@ import {
 } from "@shared/schema";
 import { isHeldSet, refreshHeldSets } from "../config/heldSets";
 import { cardReviewGuardEnabled, setCardReviewGuardEnabled } from "../lib/cardReviewGuard";
+import { replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
 import {
   daily5ExpansionSkipReason,
   daily5ExpansionSkipReasonFromFacts,
@@ -43,11 +44,13 @@ const UNRELEASED = "49e656e0-3762-5113-82b5-1480f1c77541";
 const EXCLUDED = DAILY5_EXCLUDED_EXPANSION_IDS[0]!;
 const FALLBACK = "229f0379-aa56-40a8-abe3-1af217a397e8";
 const DAY = "2098-06-02";
+const REDRAW = "2098-06-05";
 const HASH = "ab".repeat(32);
 
 const releasedApproved = [1, 2, 3, 4, 5].map((n) => cardId(n));
 const releasedUnapproved = cardId(6);
 const unreleasedApproved = cardId(7);
+const spareApproved = cardId(8);
 const allCards = [...releasedApproved, releasedUnapproved, unreleasedApproved];
 const manifestMembers = [...releasedApproved, releasedUnapproved];
 
@@ -73,18 +76,19 @@ function capture() {
 }
 
 async function resetRows(): Promise<void> {
-  const [challenge] = await db.select({ id: dailyChallenges.id }).from(dailyChallenges).where(eq(dailyChallenges.date, DAY)).limit(1);
-  if (challenge) {
-    await db.delete(dailyChallengeCards).where(eq(dailyChallengeCards.dailyChallengeId, challenge.id));
-    await db.delete(dailyChallenges).where(eq(dailyChallenges.id, challenge.id));
+  const challenges = await db.select({ id: dailyChallenges.id }).from(dailyChallenges).where(inArray(dailyChallenges.date, [DAY, REDRAW]));
+  if (challenges.length > 0) {
+    const ids = challenges.map((row) => row.id);
+    await db.delete(dailyChallengeCards).where(inArray(dailyChallengeCards.dailyChallengeId, ids));
+    await db.delete(dailyChallenges).where(inArray(dailyChallenges.id, ids));
   }
-  await db.delete(cardReviewApprovals).where(inArray(cardReviewApprovals.cardId, allCards));
+  await db.delete(cardReviewApprovals).where(inArray(cardReviewApprovals.cardId, [...allCards, spareApproved]));
   await db.delete(expansionReleaseMembers).where(eq(expansionReleaseMembers.setId, SET));
   await db.delete(expansionReleaseManifests).where(eq(expansionReleaseManifests.setId, SET));
   await db.update(discoveryCohortMembers).set({ playableCardId: null }).where(eq(discoveryCohortMembers.setId, SET));
   await db.delete(discoveryCohortMembers).where(eq(discoveryCohortMembers.setId, SET));
   await db.delete(discoveryCohorts).where(eq(discoveryCohorts.setId, SET));
-  await db.delete(playableCards).where(inArray(playableCards.id, allCards));
+  await db.delete(playableCards).where(inArray(playableCards.id, [...allCards, spareApproved]));
 }
 
 describe("released expansion sets in Daily 5", () => {
@@ -236,6 +240,81 @@ describe("released expansion sets in Daily 5", () => {
       .where(eq(dailyChallengeCards.dailyChallengeId, challenge!.id));
     expect(hand).toHaveLength(5);
     expect(hand.map((row) => row.cardId).sort()).toEqual([...releasedApproved].sort());
+
+    const removedId = releasedApproved[0]!;
+    await db.insert(playableCards).values({
+      id: spareApproved,
+      gameSetId: SET,
+      cardhedgeCardId: `d5exp:${spareApproved}`,
+      player: "Fixture Player 8",
+      set: "1990 Fleer Baseball",
+      number: "207",
+      variant: "Base",
+      imageUrl: `https://packpts.com/cards/${spareApproved}.jpg`,
+      category: "Baseball",
+      isPlayable: true,
+      contentVerified: true,
+    });
+    await db.insert(discoveryCohortMembers).values({
+      memberKey: memberKey(spareApproved),
+      setId: SET,
+      ordinal: 8,
+      cardNumber: "207",
+      supplierId: "d5exp-supplier-8",
+      originalSha256: HASH,
+      originalWidth: 40,
+      originalHeight: 60,
+      originalBytes: 8,
+      disposition: "pass-candidate",
+      routing: "synthetic",
+      playableCardId: spareApproved,
+    });
+    await db.insert(expansionReleaseMembers).values({
+      manifestId,
+      memberKey: memberKey(spareApproved),
+      setId: SET,
+      sourceSha256: HASH,
+      nativeSha256: HASH,
+      preview300Sha256: HASH,
+      polygonSha256: HASH,
+      rendererId: "renderMeasuredProposal@" + "a".repeat(40),
+      proposalId: randomUUID(),
+    });
+    await db.insert(cardReviewApprovals).values({
+      cardId: spareApproved,
+      gameSetId: SET,
+      source: "qa",
+      approvedBy: "reviewer",
+    });
+    await db.delete(expansionReleaseMembers).where(and(
+      eq(expansionReleaseMembers.manifestId, manifestId),
+      eq(expansionReleaseMembers.memberKey, memberKey(removedId)),
+    ));
+
+    const afterRemoval = await loadDaily5Pool(SET);
+    const stillDealable = new Set(afterRemoval.filtered.map((card) => card.id));
+    expect(stillDealable.has(removedId)).toBe(false);
+    expect(stillDealable.has(spareApproved)).toBe(true);
+    expect(await replaceBlockedDaily5Cards(challenge!.id, DAY)).toBe(0);
+    const stored = await db.select({ cardId: dailyChallengeCards.cardId }).from(dailyChallengeCards)
+      .where(eq(dailyChallengeCards.dailyChallengeId, challenge!.id));
+    expect(stored.map((row) => row.cardId)).not.toContain(removedId);
+    expect(stored.map((row) => row.cardId)).toContain(spareApproved);
+
+    const [redraw] = await db.insert(dailyChallenges).values({
+      date: REDRAW,
+      mode: "DAILY5",
+      setId: SET,
+      seed: "d5-expansion-redraw",
+      startsAt: new Date(`${REDRAW}T00:00:00.000Z`),
+      endsAt: new Date("2098-06-06T00:00:00.000Z"),
+      status: "SCHEDULED",
+    }).returning();
+    await daily5Service.selectCardsForChallenge(redraw!, SET, redraw!.seed);
+    const redrawn = await db.select({ cardId: dailyChallengeCards.cardId }).from(dailyChallengeCards)
+      .where(eq(dailyChallengeCards.dailyChallengeId, redraw!.id));
+    expect(redrawn.map((row) => row.cardId)).not.toContain(removedId);
+    expect(redrawn).toHaveLength(5);
 
     const choice = await resolveDaily5SetForDate("2026-11-16", {
       config: () => ({ greenSetIds: [SET], fallbackSetId: FALLBACK }),

@@ -5529,3 +5529,23 @@ export const expansionReleaseMembers = pgTable("expansion_release_members", {
 }, (table) => [
   primaryKey({ columns: [table.manifestId, table.memberKey] }),
 ]);
+
+/**
+ * One audited removal from a live expansion manifest.
+ * `drizzle-kit push --force` drops tables that are not declared here.
+ * A permanent row blocks every later replace and set-clearance that lists the member.
+ */
+export const expansionReleaseRemovals = pgTable("expansion_release_removals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  setId: varchar("set_id").notNull().references(() => discoveryCohorts.setId),
+  fromManifestId: uuid("from_manifest_id").notNull().references(() => expansionReleaseManifests.id),
+  toManifestId: uuid("to_manifest_id").notNull().references(() => expansionReleaseManifests.id),
+  memberKey: text("member_key").notNull().references(() => discoveryCohortMembers.memberKey),
+  reason: text("reason").notNull(),
+  permanent: boolean("permanent").notNull().default(false),
+  removedBy: text("removed_by").notNull(),
+  evidenceRef: text("evidence_ref").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_expansion_release_removal_member").on(table.setId, table.memberKey),
+]);

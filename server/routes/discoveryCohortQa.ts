@@ -26,6 +26,7 @@ import {
   readStoredOpaquePreview,
   replaceExpansionRelease,
   revokeExpansionRelease,
+  type ExpansionReleaseRemoval,
 } from "../services/baseballExpansion/perCardRelease";
 import { expansionTargetById } from "../services/baseballExpansion/registry";
 import {
@@ -56,6 +57,23 @@ function gate(req: Request, res: Response): boolean {
 
 function noUrl(body: Record<string, unknown>): boolean {
   return !("imageUrl" in body) && !("sourceUrl" in body) && !("url" in body);
+}
+
+function parseRemovals(value: unknown): ExpansionReleaseRemoval[] | null {
+  if (!Array.isArray(value)) return null;
+  const removals: ExpansionReleaseRemoval[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") return null;
+    const row = item as Record<string, unknown>;
+    if (typeof row.memberKey !== "string" || typeof row.reason !== "string") return null;
+    if ("permanent" in row && typeof row.permanent !== "boolean") return null;
+    removals.push({
+      memberKey: row.memberKey,
+      reason: row.reason,
+      ...(typeof row.permanent === "boolean" ? { permanent: row.permanent } : {}),
+    });
+  }
+  return removals;
 }
 
 export function registerDiscoveryCohortRoutes(app: Express): void {
@@ -348,10 +366,17 @@ export function registerDiscoveryCohortRoutes(app: Express): void {
     if (typeof body.evidenceRef !== "string" || typeof body.clearedBy !== "string" || typeof body.discoveryMembershipSha256 !== "string" || typeof body.expectedManifestId !== "string" || typeof body.version !== "number" || !Array.isArray(body.memberKeys)) {
       return send(res, 400, { error: "replacement needs the current manifest and the full next list" });
     }
+    let removals: ExpansionReleaseRemoval[] | undefined;
+    if ("removals" in body) {
+      const parsed = parseRemovals(body.removals);
+      if (!parsed) return send(res, 400, { error: "removal needs a member and a reason" });
+      removals = parsed;
+    }
     void replaceExpansionRelease({
       setId: req.params.setId,
       expectedManifestId: body.expectedManifestId,
       memberKeys: body.memberKeys.filter((key): key is string => typeof key === "string"),
+      removals,
       version: body.version,
       evidenceRef: body.evidenceRef,
       clearedBy: body.clearedBy,
