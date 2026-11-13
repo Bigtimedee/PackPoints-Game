@@ -11,7 +11,9 @@ import {
   DAILY5_CALENDAR_START,
   DAILY5_FALLBACK_SET_ID_DEFAULT,
   DAILY5_GREEN_SET_IDS_DEFAULT,
+  DAILY5_RELEASED_EXPANSION_START,
   daily5CalendarConfig,
+  daily5ConfigForDate,
   daily5GreenSetIds,
   daily5Weekday,
   daily5WeeklyTemplate,
@@ -112,6 +114,31 @@ describe("Daily 5 calendar config override", () => {
   it("never schedules the fallback id as a GREEN slot", () => {
     const env = { DAILY5_GREEN_SET_IDS: [T89, B24, F87, F94].join(",") };
     expect(daily5GreenSetIds(env)).toEqual([T89, F87, F94]);
+  });
+
+  it("appends released expansion sets on later fallback days and leaves earlier days alone", () => {
+    const fleer = "891b39b8-0058-5e55-9837-6e4830c55d32";
+    expect(DAILY5_RELEASED_EXPANSION_START).toBe("2026-11-16");
+    const beforeKey = "2026-11-10";
+    expect(daily5Weekday(beforeKey)).toBe(1);
+    const before = daily5ConfigForDate(beforeKey, defaults, [fleer]);
+    expect(scheduledDaily5Set(beforeKey, before)).toEqual(scheduledDaily5Set(beforeKey, defaults));
+    expect(scheduledDaily5Set(beforeKey, before)!.setId).toBe(B24);
+    expect(scheduledDaily5Set("2026-10-06", daily5ConfigForDate("2026-10-06", defaults, [fleer]))!.setId).toBe(B24);
+
+    expect(daily5Weekday(DAILY5_RELEASED_EXPANSION_START)).toBe(0);
+    const opened = daily5ConfigForDate(DAILY5_RELEASED_EXPANSION_START, defaults, [fleer]);
+    expect(opened.greenSetIds.slice(0, 3)).toEqual([T89, F87, F94]);
+    expect(scheduledDaily5Set(DAILY5_RELEASED_EXPANSION_START, opened)!.setId).toBe(T89);
+    expect(scheduledDaily5Set("2026-11-18", opened)!.setId).toBe(F87);
+    expect(scheduledDaily5Set("2026-11-20", opened)!.setId).toBe(F94);
+    expect(scheduledDaily5Set("2026-11-21", opened)!.setId).toBe(T89);
+    const tuesday = "2026-11-17";
+    expect(daily5Weekday(tuesday)).toBe(1);
+    expect(scheduledDaily5Set(tuesday, daily5ConfigForDate(tuesday, defaults, [fleer]))).toMatchObject({
+      setId: fleer,
+      slot: "green",
+    });
   });
 
   it("DAILY5_FALLBACK_SET_ID overrides the fallback", () => {

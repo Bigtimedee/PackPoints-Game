@@ -11,6 +11,7 @@ import { db } from "../db";
 import { cardhedgeImportRuns, designPoolSubmissions, discoveryAdditions, discoveryCohortMembers, discoveryCohorts, discoveryImportProvenance, discoverySourceRevisions, discoverySourceStaging, expansionOutputApprovals, expansionReleaseManifests, expansionReleaseMembers, expansionServeClearances, expansionSetClearanceAttempts, expansionSourceAcceptances, gameSets, geometryProposals, playableCards } from "@shared/schema";
 import { CLEARED_SET_IDS, holdReasonForIdentity, isDesignApprovedSetId, isHeldSet, NO_MASK_PROFILE_REASON, refreshHeldSets } from "../config/heldSets";
 import { getMaskProfile, profileIsRegistered } from "../masking/maskProfiles";
+import { expansionSetIsCleared } from "../services/baseballExpansion/perCardRelease";
 import { missingExpansionTargets } from "../services/baseballExpansion/registry";
 import { insertIntegratedGameSet } from "../services/baseballExpansion/createIntegratedSet";
 import { resolveDaily5SetForDate } from "../services/daily5SetPick";
@@ -212,7 +213,11 @@ describe("16 missing sets stay held and unreachable", () => {
   });
 
   it("keeps every id out of Daily 5 even when the hold flag is ignored and the id is scheduled", async () => {
+    let checked = 0;
     for (const target of targets) {
+      // A parallel release test may hold an active manifest for one id. That set is enrolled. The unreleased ids stay blocked.
+      if (await expansionSetIsCleared(target.id)) continue;
+      checked += 1;
       const choice = await resolveDaily5SetForDate("2026-10-05", {
         config: () => ({ greenSetIds: [target.id], fallbackSetId: FALLBACK }),
         legacyPick: async () => ({ id: "37fd025d-2ae1-4c92-b8ad-133375d0c722", setName: "1987 Topps" }),
@@ -224,6 +229,7 @@ describe("16 missing sets stay held and unreachable", () => {
       expect(choice?.id).not.toBe(target.id);
       expect(choice?.skipped).toContainEqual({ id: target.id, reason: "expansion_not_enrolled" });
     }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it("serializes two integrated creates of the same product", async () => {

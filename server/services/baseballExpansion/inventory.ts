@@ -2,6 +2,7 @@ import { and, gte, lte, sql } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../../db";
 import { collidingIdentities, type IdentityRow } from "./identity";
+import { releasedExpansionRotationIds } from "./daily5Enrollment";
 import { BASEBALL_EXPANSION_TARGETS, type ExpansionTarget } from "./registry";
 
 export async function baseballIdentityRows(): Promise<IdentityRow[]> {
@@ -69,9 +70,14 @@ export function inventoryView(target: ExpansionTarget, rows: readonly IdentityRo
 
 export async function listExpansionInventory() {
   const rows = await baseballIdentityRows();
+  const enrolled = new Set((await releasedExpansionRotationIds()).map((id) => id.toLowerCase()));
   return {
     targets: BASEBALL_EXPANSION_TARGETS.length,
     missing: BASEBALL_EXPANSION_TARGETS.filter((target) => target.role === "missing").length,
-    sets: BASEBALL_EXPANSION_TARGETS.map((target) => inventoryView(target, rows)),
+    sets: BASEBALL_EXPANSION_TARGETS.map((target) => {
+      const view = inventoryView(target, rows);
+      if (target.role !== "missing") return view;
+      return { ...view, daily5Blocked: !enrolled.has(target.id.toLowerCase()) };
+    }),
   };
 }

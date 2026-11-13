@@ -72,7 +72,27 @@ export const defaultSeoDeps: SeoDeps = {
     const found = await resolvePlaySetsSet(idOrSlug);
     if (!found) return null;
     const listed = (await listSeoSets()).find((s) => s.id === found.id);
-    return listed ?? "custom";
+    if (listed) return listed;
+    const { expansionTargetById } = await import("../services/baseballExpansion/registry");
+    const target = expansionTargetById(found.id);
+    if (target?.role !== "missing") return "custom";
+    let cardCount = 0;
+    try {
+      const { eligibleCountsForSetIds } = await import("../services/playableSetEligibility");
+      cardCount = (await eligibleCountsForSetIds([found.id])).get(found.id) ?? 0;
+    } catch {
+      cardCount = 0;
+    }
+    return {
+      id: found.id,
+      setName: found.setName,
+      year: target.identity.year,
+      brand: target.identity.brand,
+      sport: "baseball",
+      cardCount,
+      slug: target.slug,
+      coverUrls: [],
+    };
   },
 };
 

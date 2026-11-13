@@ -12,9 +12,15 @@ import { and, desc, eq, notInArray } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../db";
 import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
-import { isDaily5ExpansionBlocked, missingExpansionTargets } from "./baseballExpansion/registry";
+import { expansionReleaseManifestActive, releasedExpansionRotationIds } from "./baseballExpansion/daily5Enrollment";
+import {
+  isDaily5ExpansionExcluded,
+  isMissingExpansionId,
+  missingExpansionTargets,
+} from "./baseballExpansion/registry";
 import {
   daily5CalendarConfig,
+  daily5ConfigForDate,
   scheduledDaily5Set,
   type Daily5CalendarConfig,
 } from "./daily5Calendar";
@@ -32,7 +38,10 @@ export async function pickDaily5Set(): Promise<{ id: string; setName: string } |
     eq(gameSets.isActive, true),
     eq(gameSets.isUserCreated, false),
   ];
-  const blockedExpansion = missingExpansionTargets().map((target) => target.id);
+  const enrolled = new Set((await releasedExpansionRotationIds()).map((id) => id.toLowerCase()));
+  const blockedExpansion = missingExpansionTargets()
+    .map((target) => target.id)
+    .filter((id) => !enrolled.has(id.toLowerCase()));
   if (heldIds.length > 0) {
     filters.push(notInArray(gameSets.id, [...heldIds]));
   }
@@ -86,14 +95,30 @@ export const defaultDaily5ResolverDeps: Daily5ResolverDeps = {
  *
  * Before DAILY5_CALENDAR_START: the legacy pick, unchanged.
  * From the start: the fixed calendar set. A held, inactive, user-created,
- * missing, or under-5-dealable set falls back to DAILY5_FALLBACK_SET_ID, then
- * to the legacy pick, so a day never ends up with an empty deal.
+ * unreleased expansion, or under-5-dealable set falls back to
+ * DAILY5_FALLBACK_SET_ID, then to the legacy pick, so a day never ends up
+ * with an empty deal. A missing expansion set is scheduled only when its
+ * release manifest is active and the set is not held.
  */
+async function expansionBlockReason(id: string, enrolled: ReadonlySet<string>): Promise<string | null> {
+  if (!isMissingExpansionId(id) || enrolled.has(id.toLowerCase())) return null;
+  if (!isDaily5ExpansionExcluded(id) && isHeldSet(id)) {
+    try {
+      if (await expansionReleaseManifestActive(id)) return "held";
+    } catch {
+      return "expansion_not_enrolled";
+    }
+  }
+  return "expansion_not_enrolled";
+}
+
 export async function resolveDaily5SetForDate(
   dayKey: string,
   deps: Daily5ResolverDeps = defaultDaily5ResolverDeps,
 ): Promise<Daily5SetChoice | null> {
-  const config = deps.config();
+  const releasedIds = await releasedExpansionRotationIds();
+  const enrolled = new Set(releasedIds.map((id) => id.toLowerCase()));
+  const config = daily5ConfigForDate(dayKey, deps.config(), releasedIds);
   const scheduled = scheduledDaily5Set(dayKey, config);
   if (!scheduled) {
     const legacy = await deps.legacyPick();
@@ -108,7 +133,8 @@ export async function resolveDaily5SetForDate(
   const usable = async (id: string): Promise<{ row: Daily5SetRow; count: number } | null> => {
     const row = await deps.describe(id);
     if (!row) { skipped.push({ id, reason: "missing" }); return null; }
-    if (isDaily5ExpansionBlocked(id)) { skipped.push({ id, reason: "expansion_not_enrolled" }); return null; }
+    const expansionReason = await expansionBlockReason(id, enrolled);
+    if (expansionReason) { skipped.push({ id, reason: expansionReason }); return null; }
     if (!row.isActive || row.isUserCreated) { skipped.push({ id, reason: "inactive" }); return null; }
     if (deps.isHeld(id)) { skipped.push({ id, reason: "held" }); return null; }
     const count = await deps.dealableCount(id);
