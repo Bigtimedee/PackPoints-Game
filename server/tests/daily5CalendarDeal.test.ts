@@ -21,7 +21,8 @@ import {
 import { addPackptsDays, getDailyStartEnd } from "@shared/packptsDay";
 import { db } from "../db";
 import { refreshHeldSets } from "../config/heldSets";
-import { daily5Weekday } from "../services/daily5Calendar";
+import { daily5CalendarConfig, daily5ConfigForDate, daily5Weekday, scheduledDaily5Set } from "../services/daily5Calendar";
+import { releasedExpansionRotationIds } from "../services/baseballExpansion/daily5Enrollment";
 import { daily5Service } from "../services/daily5Service";
 import { registerDealableQaRoutes } from "../routes/dealableQa";
 
@@ -216,7 +217,13 @@ describe("Daily 5 fixed calendar deal", () => {
       const body = await res.json() as { timezone: string; days: { date: string; weekday: string; setId: string; scheduledSetId: string; cardIds: string[]; stored: boolean }[] };
       expect(body.timezone).toBe("America/Chicago");
       expect(body.days.map((d) => d.weekday)).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
-      expect(body.days.map((d) => d.scheduledSetId)).toEqual([greenA, fallbackF, thinB, fallbackF, heldH, greenA, fallbackF]);
+      const released = await releasedExpansionRotationIds();
+      const base = daily5CalendarConfig();
+      const scheduledIds = body.days.map((d) => scheduledDaily5Set(d.date, daily5ConfigForDate(d.date, base, released))!.setId);
+      expect(body.days.map((d) => d.scheduledSetId)).toEqual(scheduledIds);
+      if (released.length === 0) {
+        expect(scheduledIds).toEqual([greenA, fallbackF, thinB, fallbackF, heldH, greenA, fallbackF]);
+      }
       expect(body.days.map((d) => d.setId)).toEqual([greenA, fallbackF, fallbackF, fallbackF, fallbackF, greenA, fallbackF]);
       expect(body.days.every((d) => d.cardIds.length === 5 && !d.stored)).toBe(true);
       expect(JSON.stringify(body)).not.toContain("Player");

@@ -17,6 +17,7 @@ import {
   daily5GreenSetIds,
   daily5Weekday,
   daily5WeeklyTemplate,
+  daysSinceCalendarStart,
   scheduledDaily5Set,
   WEEKDAYS,
 } from "../services/daily5Calendar";
@@ -29,6 +30,12 @@ const F94 = "a09b2fe7-728e-431b-9df8-bbf2652aa3b2";
 const B24 = "229f0379-aa56-40a8-abe3-1af217a397e8";
 const EXTRA1 = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
 const EXTRA2 = "74885a41-2043-4b7c-ab58-f9e16c05e2e3";
+const T86 = "2b77043a-6583-4d79-b59d-d2ab20291a17"; // 1986 Topps
+const D87 = "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4"; // 1987 Donruss
+const FLEER89 = "855e8125-4169-5d0b-b04c-3513feae9637"; // 1989 Fleer
+const FLEER86 = "891b39b8-0058-5e55-9837-6e4830c55d32"; // 1986 Fleer
+const D89 = "d6997c20-0880-5119-80d2-9ce8c9b4727e"; // 1989 Donruss
+const T90 = "97456b32-7b68-56fe-971a-1c821e2b09c4"; // 1990 Topps
 
 const defaults = daily5CalendarConfig({});
 
@@ -116,29 +123,110 @@ describe("Daily 5 calendar config override", () => {
     expect(daily5GreenSetIds(env)).toEqual([T89, F87, F94]);
   });
 
-  it("appends released expansion sets on later fallback days and leaves earlier days alone", () => {
-    const fleer = "891b39b8-0058-5e55-9837-6e4830c55d32";
+  it("places one released expansion on later open weekdays and leaves earlier days alone", () => {
+    const fleer = FLEER86;
     expect(DAILY5_RELEASED_EXPANSION_START).toBe("2026-11-16");
     const beforeKey = "2026-11-10";
     expect(daily5Weekday(beforeKey)).toBe(1);
     const before = daily5ConfigForDate(beforeKey, defaults, [fleer]);
+    expect(before).toBe(defaults);
     expect(scheduledDaily5Set(beforeKey, before)).toEqual(scheduledDaily5Set(beforeKey, defaults));
     expect(scheduledDaily5Set(beforeKey, before)!.setId).toBe(B24);
     expect(scheduledDaily5Set("2026-10-06", daily5ConfigForDate("2026-10-06", defaults, [fleer]))!.setId).toBe(B24);
 
     expect(daily5Weekday(DAILY5_RELEASED_EXPANSION_START)).toBe(0);
     const opened = daily5ConfigForDate(DAILY5_RELEASED_EXPANSION_START, defaults, [fleer]);
-    expect(opened.greenSetIds.slice(0, 3)).toEqual([T89, F87, F94]);
+    expect(opened.greenSetIds).toEqual([T89, F87, F94]);
+    expect(opened.rotationSetIds).toEqual([fleer]);
     expect(scheduledDaily5Set(DAILY5_RELEASED_EXPANSION_START, opened)!.setId).toBe(T89);
     expect(scheduledDaily5Set("2026-11-18", opened)!.setId).toBe(F87);
     expect(scheduledDaily5Set("2026-11-20", opened)!.setId).toBe(F94);
     expect(scheduledDaily5Set("2026-11-21", opened)!.setId).toBe(T89);
+    expect(scheduledDaily5Set("2026-11-23", daily5ConfigForDate("2026-11-23", defaults, [fleer]))!.setId).toBe(T89);
     const tuesday = "2026-11-17";
     expect(daily5Weekday(tuesday)).toBe(1);
     expect(scheduledDaily5Set(tuesday, daily5ConfigForDate(tuesday, defaults, [fleer]))).toMatchObject({
       setId: fleer,
       slot: "green",
     });
+    expect(scheduledDaily5Set("2026-11-19", opened)!.setId).toBe(fleer);
+    expect(scheduledDaily5Set("2026-11-22", opened)!.setId).toBe(fleer);
+  });
+
+  it("leaves the calendar unchanged when the expansion rotation is empty", () => {
+    const base4 = { greenSetIds: [T89, F87, T86, D87], fallbackSetId: B24 };
+    for (const date of ["2026-11-09", "2026-11-14", "2026-11-15", "2026-11-16", "2026-11-19", "2026-11-29"]) {
+      expect(daily5ConfigForDate(date, defaults, [])).toBe(defaults);
+      expect(daily5ConfigForDate(date, base4, [])).toBe(base4);
+      expect(daily5ConfigForDate(date, base4, ["nope", B24, T89])).toBe(base4);
+      expect(scheduledDaily5Set(date, daily5ConfigForDate(date, defaults, []))).toEqual(scheduledDaily5Set(date, defaults));
+      expect(scheduledDaily5Set(date, daily5ConfigForDate(date, base4, []))).toEqual(scheduledDaily5Set(date, base4));
+    }
+  });
+
+  it("keeps a 4-set green week and rotates expansions through Thu and Sun", () => {
+    // 1989 Topps, 1987 Topps (slot 1, 1987 Topps Football), 1986 Topps, 1987 Donruss.
+    const base4 = { greenSetIds: [T89, F87, T86, D87], fallbackSetId: B24 };
+    const expansions = [FLEER89, FLEER86, D89, T90];
+    const anchored = new Set([0, 1, 2, 4, 5]);
+    for (let i = 0; i < 21; i++) {
+      const date = addPackptsDays("2026-11-09", i);
+      const plain = scheduledDaily5Set(date, base4)!;
+      const dated = daily5ConfigForDate(date, base4, expansions);
+      const scheduled = scheduledDaily5Set(date, dated)!;
+      expect(dated.greenSetIds).toEqual(base4.greenSetIds);
+      const weekday = daily5Weekday(date);
+      if (date < DAILY5_RELEASED_EXPANSION_START || anchored.has(weekday)) {
+        expect(scheduled).toEqual(plain);
+        continue;
+      }
+      expect(dated.rotationSetIds).toEqual(expansions);
+      const week = Math.floor(daysSinceCalendarStart(date) / 7);
+      const template = daily5WeeklyTemplate(base4.greenSetIds.length, week);
+      const free = template.flatMap((slot, index) => (slot == null ? [index] : []));
+      const k = free.indexOf(weekday);
+      expect(free).toEqual([3, 6]);
+      expect(scheduled).toMatchObject({
+        setId: expansions[(k + free.length * week) % expansions.length],
+        slot: "green",
+      });
+      expect(scheduled.setId).not.toBe(B24);
+    }
+
+    const pick = (date: string) => scheduledDaily5Set(date, daily5ConfigForDate(date, base4, expansions))!.setId;
+    expect(pick("2026-11-12")).toBe(B24);
+    expect(pick("2026-11-15")).toBe(B24);
+    expect(pick("2026-11-16")).toBe(T89);
+    expect(pick("2026-11-17")).toBe(D87);
+    expect(pick("2026-11-18")).toBe(F87);
+    expect(pick("2026-11-19")).toBe(FLEER89);
+    expect(pick("2026-11-20")).toBe(T86);
+    expect(pick("2026-11-21")).toBe(T89);
+    expect(pick("2026-11-22")).toBe(FLEER86);
+    expect(pick("2026-11-26")).toBe(D89);
+    expect(pick("2026-11-29")).toBe(T90);
+  });
+
+  it("keeps the 3-default weekdays when four expansions would have made the list 7 long", () => {
+    const expansions = [FLEER89, FLEER86, D89, T90];
+    const opened = daily5ConfigForDate("2026-11-16", defaults, expansions);
+    expect(opened.greenSetIds).toEqual([T89, F87, F94]);
+    expect(opened.rotationSetIds).toEqual(expansions);
+    const anchored = new Set([0, 2, 4, 5]);
+    for (let i = 0; i < 14; i++) {
+      const date = addPackptsDays("2026-11-16", i);
+      const weekday = daily5Weekday(date);
+      const scheduled = scheduledDaily5Set(date, daily5ConfigForDate(date, defaults, expansions))!;
+      const plain = scheduledDaily5Set(date, defaults)!;
+      if (anchored.has(weekday)) {
+        expect(scheduled.setId).toBe(plain.setId);
+      } else {
+        const week = Math.floor(daysSinceCalendarStart(date) / 7);
+        const free = daily5WeeklyTemplate(3, week).flatMap((slot, index) => (slot == null ? [index] : []));
+        const k = free.indexOf(weekday);
+        expect(scheduled.setId).toBe(expansions[(k + free.length * week) % expansions.length]);
+      }
+    }
   });
 
   it("DAILY5_FALLBACK_SET_ID overrides the fallback", () => {
